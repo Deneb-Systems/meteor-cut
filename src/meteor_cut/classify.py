@@ -5,8 +5,9 @@ People, torches, phones and cars fail at least one of those: they wander, move s
 up the same patch again and again, or break into several moving pieces at once.
 
 Satellites and planes come from the slow tracker (see scan.py): straight, steady, and slower than meteors. A plane
-blinks, shows gaps, or travels as several lights together; a satellite is one steady point. That split is a rule of
-thumb: a satellite that flares can pass for a plane.
+flashes (its strobes: brief, sharp, again and again) or travels as several lights together; a satellite is one point,
+steady, slowly brightening and fading as it catches the sun (a flare), or dropping in and out of detection when
+faint. A dim plane without strobes in view still passes for a satellite.
 
 Distances are fractions of the frame width, so the same rules work for 720p and 4K.
 """
@@ -49,7 +50,11 @@ class Rules:
     slow_max_speed: float = 0.12
     slow_min_straightness: float = 0.85
     slow_max_line_error: float = 0.06
-    blink_variation: float = 0.25  # brightness spread (std / mean) above which a light counts as blinking
+    # A strobe flash: one sample at least flash_ratio times, and flash_margin grey levels above, the light's level
+    # around it, with both neighbouring samples well below it. min_flashes of them make a plane.
+    flash_ratio: float = 1.8
+    flash_margin: int = 50
+    min_flashes: int = 3
     # Lights of one plane fly side by side (wing tips), close together. Satellites of a train (Starlink) fly one
     # behind another along the same line, so a companion counts only when it is beside the light, not ahead or behind.
     group_radius: float = 0.02  # of frame width
@@ -236,6 +241,27 @@ def _beside(track: Track, other: Track, radius: float) -> bool:
     return math.hypot(dx, dy) <= radius and across > along
 
 
+def count_flashes(peaks: Sequence[int], ratio: float, margin: int, half_window: int = 5) -> int:
+    """Brief, sharp brightenings in a light's brightness samples: aircraft strobes, as the slow tracker sees them.
+
+    Samples far below the light's usual level (the tracker briefly lost it) are left out, and each sample is compared
+    with the median of its neighbours, so a flare, which brightens and fades over seconds, does not count, and
+    neither does steady twinkling.
+    """
+    if len(peaks) < 3:
+        return 0
+    usual = statistics.median(peaks)
+    values = [p for p in peaks if p >= 0.25 * usual]
+    flashes = 0
+    for i in range(1, len(values) - 1):
+        around = values[max(0, i - half_window) : i] + values[i + 1 : i + 1 + half_window]
+        level = statistics.median(around)
+        value = values[i]
+        if value >= max(ratio * level, level + margin) and max(values[i - 1], values[i + 1]) <= 0.75 * value:
+            flashes += 1
+    return flashes
+
+
 def _travels_with(track: Track, others: Sequence[Track], radius: float, max_heading_deg: float) -> bool:
     """Another light flying beside this one in the same direction: a plane's lights."""
     pts = track.detections
@@ -285,9 +311,12 @@ def find_slow_objects(
         variation = statistics.pstdev(peaks) / mean if mean else 0.0
         detected_share = min(1.0, len(pts) / ((pts[-1].frame - pts[0].frame) / step + 1))
         companion = _travels_with(track, candidates, radius, rules.group_heading_deg)
-        # Gaps alone do not make a plane: faint satellites drop in and out of detection too.
-        kind = Kind.PLANE if variation > rules.blink_variation or companion else Kind.SATELLITE
+        flashes = count_flashes(peaks, rules.flash_ratio, rules.flash_margin)
+        # Gaps and flares alone do not make a plane: faint satellites drop in and out of detection, and satellites
+        # brighten and fade as they catch the sun.
+        kind = Kind.PLANE if flashes >= rules.min_flashes or companion else Kind.SATELLITE
         diagnostics: dict[str, float | bool] = {
+            "flashes": flashes,
             "brightness_variation": round(variation, 3),
             "detected_share": round(detected_share, 3),
             "travels_with_another_light": companion,

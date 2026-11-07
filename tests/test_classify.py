@@ -3,7 +3,7 @@ import math
 import pytest
 
 from conftest import FPS, line, make_scan, make_track
-from meteor_cut.classify import Rules, classify, find_meteors, find_slow_objects
+from meteor_cut.classify import Rules, classify, count_flashes, find_meteors, find_slow_objects
 from meteor_cut.model import Kind, Reason
 from meteor_cut.optics import Camera
 
@@ -73,14 +73,40 @@ def slow_track(track_id, x0, y0, dx, dy, n, start=0, step=5, peaks=None):
     return make_track(10_000_000 + track_id, line(x0, y0, dx, dy, n), start=start, step=step, peaks=peaks, slow=True)
 
 
-def test_a_steady_light_is_a_satellite_and_a_blinking_one_a_plane():
+def test_a_steady_light_is_a_satellite_and_a_flashing_one_a_plane():
     satellite = slow_track(1, 200, 300, 6, 2, 40, start=100)
-    plane = slow_track(2, 900, 700, -5, -3, 40, start=100, peaks=[230 if i % 3 else 60 for i in range(40)])
+    # Strobes: a brief flash every few samples over the dimmer position lights.
+    plane = slow_track(2, 900, 700, -5, -3, 40, start=100, peaks=[240 if i % 4 == 1 else 90 for i in range(40)])
     found = classify(make_scan(slow=(satellite, plane)), Camera.from_fov(1920, 1080, 90, tilt_deg=30))
     assert [o.label for o in found.satellites] == ["S1"] and [o.label for o in found.planes] == ["P1"]
     # Satellites and planes get an angular speed, but no km/s: their height is unknown.
     assert all(o.motion and o.motion.angular_speed_deg_s > 0 and o.motion.sky_speed_km_s is None for o in found.others)
-    assert found.planes[0].diagnostics["brightness_variation"] > Rules().blink_variation
+    assert found.planes[0].diagnostics["flashes"] >= Rules().min_flashes
+    assert found.satellites[0].diagnostics["flashes"] == 0
+
+
+@pytest.mark.parametrize(
+    "peaks",
+    [
+        [120] * 10
+        + [150, 190, 240, 255, 255, 255, 255, 240, 190, 150]
+        + [120] * 20,  # a flare: up and down over seconds
+        [120, 3, 125, 118, 2, 4, 121, 119, 3, 122] * 4,  # the tracker losing a faint satellite now and then
+        [100, 140, 95, 130, 105, 145, 98, 135] * 5,  # twinkling
+    ],
+    ids=["flare", "dropouts", "twinkling"],
+)
+def test_flares_dropouts_and_twinkling_are_not_strobes(peaks):
+    satellite = slow_track(1, 100, 200, 6, 1, len(peaks), peaks=peaks)
+    found = classify(make_scan(slow=(satellite,)))
+    assert [o.label for o in found.satellites] == ["S1"] and not found.planes
+
+
+def test_flashes_are_counted_against_the_lights_own_level():
+    assert count_flashes([90, 240, 90, 90, 90, 240, 90, 90, 90, 240, 90], 1.8, 50) == 3
+    assert count_flashes([200, 255, 200, 200, 255, 200], 1.8, 50) == 0  # too little above a bright light
+    assert count_flashes([90, 240, 240, 90, 90, 240, 240, 90], 1.8, 50) == 0  # two samples long: not a brief flash
+    assert count_flashes([90, 240], 1.8, 50) == 0
 
 
 def test_lights_side_by_side_are_one_plane():

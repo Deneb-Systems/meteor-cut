@@ -28,6 +28,11 @@ All notable changes to this project are listed here. The format follows
 
 ### Changed
 
+- Planes are told from satellites by strobe flashes (brief, sharp, repeated) instead of any brightness spread. Flaring
+  satellites, faint ones the tracker briefly loses, and twinkling no longer count as planes: on an 8-hour night 81
+  "planes" became 1. `Rules.blink_variation` is replaced by `flash_ratio`, `flash_margin` and `min_flashes`;
+  `satellites_planes.csv` gains a `flashes` column.
+
 - The upload page and report match the Sky Tracker website: Manrope (bundled, works offline), large type, rounded
   cards, drag-and-drop upload with progress, and the report titled with the video's own name.
 

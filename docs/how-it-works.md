@@ -74,14 +74,19 @@ changed from Python; the command line exposes the two most useful ones.
 The slow tracker's tracks that last at least 2 seconds, move in a straight line, and move at 0.2-12 % of the frame
 width per second are satellites or planes. Each one's brightness over time decides which:
 
-- **Plane:** blinking (brightness spread above 25 % of its mean), or flying with another light beside it (within 2 %
-  of the frame width, offset across the direction of travel, like wing-tip lights). Lights of one plane are merged.
-- **Satellite:** everything else: one point, steady or fading. Gaps in detection do not make a plane, because faint
-  satellites drop in and out of detection too, and satellites of a train (Starlink) fly one behind another, not side
-  by side.
+- **Plane:** strobe flashes, or flying with another light beside it (within 2 % of the frame width, offset across the
+  direction of travel, like wing-tip lights). Lights of one plane are merged. A flash is a single sample at least 1.8
+  times, and 50 grey levels above, the median of the five samples on each side, with both neighbours below three
+  quarters of it; it takes three. At five samples a second a strobe (a tenth of a second) shows as exactly that: one
+  sample, alone. Samples where the tracker briefly lost the light (below a quarter of its usual level) are skipped.
+- **Satellite:** everything else: one point, steady, flaring (brightening and fading over seconds as it catches the
+  sun), twinkling, or dropping in and out of detection when faint. Satellites of a train (Starlink) fly one behind
+  another, not side by side.
 
-This is a rule of thumb. A satellite that flares (an Iridium-style glint, a tumbling rocket body) can be called a
-plane, and a distant plane with dim lights can be called a satellite. Short tracks that the slow tracker sees during
+On a night of Perseids (8 hours, 1,551 satellites and planes) an earlier rule, any brightness spread above 25 % of
+the mean, called 81 lights planes; checked frame by frame, they were satellites, mostly flares and faint ones losing
+detection. The flash rule calls one light a plane: navigation lights and strobes over the trees at dusk. A plane whose
+strobes face away, or a distant one with dim lights, still passes for a satellite. Short tracks that the slow tracker sees during
 a meteor are dropped as `part_of_meteor`.
 
 ## 4. Speed

@@ -137,6 +137,7 @@ OBJECT_COLUMNS = (
     "brightness_variation",
     "detected_share",
     "travels_with_another_light",
+    "flashes",
 )
 
 
@@ -161,6 +162,7 @@ def write_satellites_and_planes(path: Path, objects: Sequence[SkyObject]) -> Non
             d.get("brightness_variation", ""),
             d.get("detected_share", ""),
             d.get("travels_with_another_light", ""),
+            d.get("flashes", ""),
         ]
 
     _write(path, OBJECT_COLUMNS, map(row, objects))
