@@ -68,7 +68,7 @@ def _meteor_rows(meteors: Sequence[SkyObject], long: bool) -> list[list[Any]]:
             [
                 m.label,
                 m.rank,
-                clock(m.start_s),
+                clock(m.start_s, hours_always=long),
                 _num(m.duration_s, 2),
                 _num(m.speed_px_s, 0),
                 _num(mo.angular_speed_deg_s if mo else None),
