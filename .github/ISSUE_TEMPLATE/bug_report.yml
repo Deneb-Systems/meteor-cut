@@ -1,0 +1,35 @@
+name: Bug report
+description: Something went wrong, or a meteor was missed or wrongly found
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or settings
+      placeholder: meteor-cut night.mp4 --focal 14 --tilt 40
+      render: shell
+  - type: textarea
+    id: video
+    attributes:
+      label: About the video
+      description: Camera and lens, resolution, frame rate, length. A link to the video or a short clip helps most.
+  - type: textarea
+    id: summary
+    attributes:
+      label: summary.json
+      description: Paste the summary.json from the output folder, if there is one.
+      render: json
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "Output of: meteor-cut --version, python --version, and your operating system"
+    validations:
+      required: true

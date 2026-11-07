@@ -1,13 +1,17 @@
 # Meteor Cut
 
-Give it a night-sky video from a camera on a tripod. Meteor Cut finds every meteor, cuts a highlight video with only
-the moments that have one, and measures how fast each one crossed the sky. Every meteor gets a box, its trail and its
-speed; a panel on the right lists them all, fastest first. It also picks out satellites and planes, draws every
-trajectory of the night on one picture with the shower's radiant, and makes a heat map of where meteors appeared.
-The numbers go into CSV files.
+[![CI](https://github.com/Deneb-Systems/meteor-cut/actions/workflows/ci.yml/badge.svg)](https://github.com/Deneb-Systems/meteor-cut/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/meteor-cut)](https://pypi.org/project/meteor-cut/)
+[![Python](https://img.shields.io/pypi/pyversions/meteor-cut)](https://pypi.org/project/meteor-cut/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Meteors are found and followed with [Sky Tracker](https://sky-tracker.deneb-systems.com)'s `MotionTracker`, which
-spots what got brighter since the previous frame: the head of a meteor rather than the trail it leaves.
+Point a camera at the night sky, record for an hour or a whole night, and give Meteor Cut the video. It finds every
+meteor and cuts a highlight video of just those moments, with each meteor boxed, its trail drawn and its speed shown,
+and a panel listing them all from fastest to slowest. It also picks out satellites and planes, draws every trajectory
+of the night on one picture with the shower's radiant, maps where meteors appeared, and writes it all to CSV.
+
+Meteors are found and followed by [Sky Tracker](https://sky-tracker.deneb-systems.com)'s `MotionTracker`, which looks
+for what got brighter since the previous frame: the head of a meteor rather than the trail it leaves.
 
 ## Install
 
@@ -15,83 +19,90 @@ spots what got brighter since the previous frame: the head of a meteor rather th
 pip install meteor-cut
 ```
 
-Sky Tracker needs a licence key. A free 7-day trial key is one form away:
-[sky-tracker.deneb-systems.com/trial](https://sky-tracker.deneb-systems.com/trial/). Then:
+Meteor Cut needs Python 3.10 or later and a Sky Tracker licence key. A free 7-day trial key is one short form away at
+[sky-tracker.deneb-systems.com/trial](https://sky-tracker.deneb-systems.com/trial/); then set it in your shell:
 
 ```bash
-export SKY_TRACKER_LICENSE_KEY=SKT2....
+export SKY_TRACKER_LICENSE_KEY=SKT2....        # Windows PowerShell: $env:SKY_TRACKER_LICENSE_KEY = "SKT2...."
 ```
 
-## Use it
-
-From the command line:
+## Quick start
 
 ```bash
 meteor-cut night.mp4
-meteor-cut night.mp4 --focal 14 --sensor full-frame --tilt 40
+meteor-cut night.mp4 --focal 14 --sensor full-frame --tilt 40 --show all
 ```
 
-Or open the page, upload the video there and download the results:
+Or start the upload page and use it from your browser. It runs on your computer; videos never leave it.
 
 ```bash
-meteor-cut serve          # then open http://127.0.0.1:8765
+meteor-cut serve            # then open http://127.0.0.1:8765
 ```
 
-The page runs on your computer; videos never leave it.
+From Python:
 
-Results go to `night-meteors/` beside the video (`-o` to choose):
+```python
+from meteor_cut import Lens, process
+
+result = process("night.mp4", "night-meteors", lens=Lens(focal_mm=14, tilt_deg=40))
+for meteor in result.found.meteors:
+    print(meteor.label, f"{meteor.start_s:.1f} s", f"{meteor.motion.angular_speed_deg_s:.1f} deg/s")
+```
+
+## What you get
+
+Results go to `night-meteors/` beside the video (choose with `-o`):
 
 | File | What is in it |
 |---|---|
-| `meteors.mp4` | The highlight video, 1920x1080, ending on the two images below |
-| `trajectories.png` | Every trajectory on one picture: meteors coloured by speed, satellites and planes, and the radiant |
-| `heatmap.png` | Where in the frame the meteors appeared |
+| `meteors.mp4` | The highlight video, 1920x1080, ending on the two pictures below |
+| `trajectories.png` | Every trajectory of the night: meteors coloured by speed, satellites and planes, and the radiant |
+| `heatmap.png` | Where in the frame meteors appeared |
+| `meteors.csv` | One row per meteor: time, position, length, direction, speed and rank by speed |
 | `satellites_planes.csv` | One row per satellite or plane |
-| `meteors.csv` | One row per meteor: time, position, length, direction, speed, rank by speed |
-| `meteor_points.csv` | Every tracked position of every meteor, satellite and plane, frame by frame |
-| `rejected.csv` | Moving things that were not meteors, and why |
-| `summary.json` | Totals, rates, the camera and the settings used |
-
-## Satellites, planes and the radiant
-
-Satellites and planes move too slowly to stand out from one frame to the next, so a second tracker looks at about
-five frames a second. Slow, straight and long tracks are satellites when they are one steady point, and planes when
-they blink, drop out, or travel as several lights together. That split is a rule of thumb: a flaring satellite can pass
-for a plane. They are always in the CSV and on the trajectories picture; to put them in the video too, use
-`--show all` (or `--show meteors,satellites`).
-
-Meteors of a shower all fly away from one point in the sky, the radiant. With a normal (rectilinear) lens their paths
-are straight lines in the picture, so Meteor Cut finds the point they trace back to, leaving out sporadic meteors from
-other directions. It is often outside the frame.
-
-Past trails stay faintly on screen while the video plays; `--no-trails` turns that off.
+| `meteor_points.csv` | Every tracked position of every object, frame by frame |
+| `rejected.csv` | Everything that moved but was not kept, with the reason (people, lamps, too slow, ...) |
+| `summary.json` | Totals, rates, the camera, the radiant, versions and every setting used |
 
 ## Speeds
 
-- **No lens given:** speed on screen, in pixels per second.
-- **Lens given** (`--focal` with `--sensor`, or `--fov`): angular speed, in degrees per second. This is what meteor
-  observers compare, and it needs nothing else.
-- **Lens and tilt given** (`--tilt`, degrees above the horizon the camera points): also an estimate in km/s. One camera
-  cannot see how fast a meteor moves towards or away from it, so this is the speed across your view at the height
-  meteors burn (95 km, `--altitude`). The real speed is at least that. Values far above 72 km/s, the fastest a meteor
-  can enter, mean the lens or tilt is off.
+| You give | You get |
+|---|---|
+| Nothing | Speed on screen, in pixels per second |
+| The lens: `--focal` with `--sensor`, or `--fov` | Angular speed in degrees per second, which is what meteor observers compare |
+| The lens and `--tilt` (degrees above the horizon) | Also an estimate in km/s |
 
-The lens is assumed to be rectilinear (a normal wide-angle lens, not a fisheye), and the video to show the sensor's
-full width.
+One camera cannot see a meteor move towards or away from it, so the km/s figure is the speed across your view, at the
+height meteors burn (95 km by default, `--altitude`): the real speed is at least that. Values well above 72 km/s, the
+fastest a meteor can enter the atmosphere, mean the lens or tilt is wrong. The lens is assumed to be rectilinear (a
+normal wide-angle lens, not a fisheye), and the video to show the sensor's full width.
 
-## What counts as a meteor
+## Options worth knowing
 
-A meteor moves in a straight line, fast, for under 3 seconds, and never lights up the same place twice. So Meteor Cut
-leaves out things that wander or move slowly (people, planes, satellites), lights that flare in the same spot again and
-again (torches, phones), and groups of things moving together (a person walking). Cuts between scenes, common in
-compilations, are found and handled.
+| Option | Use it when |
+|---|---|
+| `--sky X,Y,W,H` | Trees, people or lights on the ground get in the way: look only at the sky |
+| `--show meteors,satellites,planes` or `--show all` | You want satellites and planes in the video too (they are always in the tables) |
+| `--min-speed F` | Slow meteors are missed (default 0.04 frame widths per second) |
+| `--no-trails` | You prefer a clean picture without the paths of earlier meteors |
+| `--no-video` | You only need the tables and pictures |
 
-If the ground is busy, keep the search to the sky: `--sky 0,0,1920,700` (x, y, width, height in pixels). To catch
-slower meteors, lower `--min-speed` (frame widths per second, default 0.04).
+`meteor-cut --help` and `meteor-cut process --help` list everything.
 
-## Develop
+## How it works
 
-```bash
-pip install -e '.[test]'
-pytest
-```
+In short: Sky Tracker follows everything that moves, twice (every frame for meteors, about five frames a second for
+satellites and planes). Meteor Cut then keeps what moves like a meteor: straight, fast, over in a few seconds, and
+never twice in the same place. Lights that flare in one spot, people, and groups of things moving together are left
+out, and scene cuts in compilations are handled. [docs/how-it-works.md](docs/how-it-works.md) explains each step and
+its limits.
+
+## Contributing
+
+Bug reports with a sample video are the most useful thing you can send. See [CONTRIBUTING.md](CONTRIBUTING.md) to set
+up a development copy; the tests run without a Sky Tracker licence.
+
+## Licence
+
+Meteor Cut is MIT-licensed: see [LICENSE](LICENSE). It uses the Sky Tracker SDK, which has its
+[own licence](https://sky-tracker.deneb-systems.com/terms/).

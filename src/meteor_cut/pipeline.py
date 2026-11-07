@@ -1,30 +1,41 @@
-"""One run: scan, pick the meteors (and satellites and planes), measure them, write the video, images and reports."""
+"""One run: scan the video, classify what moved, measure it, and write the video, images and tables."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+import logging
+from collections.abc import Callable, Iterable
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any
 
 import cv2
 
-from .images import heatmap, main_scene, radiant, trails
-from .meteors import KINDS, Rules, find_meteors, find_slow_objects
+from .classify import Classification, Rules, classify
+from .errors import SettingsError
+from .images import busiest_scene, heatmap, trajectories
+from .model import Kind
 from .optics import DEFAULT_METEOR_ALTITUDE_KM, Camera, parse_sensor
+from .radiant import find_radiant
 from .render import Style, write_highlights
-from .report import summary, write_meteors_csv, write_objects_csv, write_points_csv, write_rejected_csv, write_summary
-from .scan import scan, video_info
+from .report import summary, write_meteors, write_points, write_rejected, write_satellites_and_planes, write_summary
+from .scan import probe, scan
+from .tracking import TrackerFactory, sky_tracker_factory
+
+log = logging.getLogger(__name__)
+
+Progress = Callable[[str, float], None]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Lens:
-    """What the user knows about the camera. Either focal_mm with a sensor, or a horizontal field of view."""
+    """What is known about the camera: a focal length with a sensor, or a horizontal field of view; and the tilt."""
+
     focal_mm: float | None = None
-    sensor: str | None = None         # preset name or WIDTHxHEIGHT mm
+    sensor: str | None = None  # preset name or WIDTHxHEIGHT in mm; full-frame when only a focal length is given
     hfov_deg: float | None = None
-    tilt_deg: float | None = None     # camera pointing this far above the horizon
+    tilt_deg: float | None = None  # how far above the horizon the camera points
     roll_deg: float = 0.0
-    altitude_km: float = DEFAULT_METEOR_ALTITUDE_KM
+    altitude_km: float = DEFAULT_METEOR_ALTITUDE_KM  # where meteors burn, for the km/s estimate
 
     def camera(self, width: int, height: int) -> Camera | None:
         if self.hfov_deg:
@@ -33,72 +44,122 @@ class Lens:
             sensor_width = parse_sensor(self.sensor or "full-frame")[0]
             return Camera.from_lens(width, height, self.focal_mm, sensor_width, self.tilt_deg, self.roll_deg)
         if self.tilt_deg is not None:
-            raise ValueError("a mounting angle needs the lens too: give a focal length (and sensor) or a field of view")
+            raise SettingsError("a camera tilt needs the lens too: give a focal length (and sensor) or a field of view")
         return None
 
 
-def parse_show(value: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
-    """'meteors', 'satellites,planes', 'all' ... -> kinds."""
+def parse_show(value: str | Iterable[str]) -> frozenset[Kind]:
+    """'meteors', 'satellites,planes', 'all' ... as kinds."""
     words = value.split(",") if isinstance(value, str) else list(value)
-    kinds: list[str] = []
-    for word in (w.strip().lower().rstrip("s") for w in words if w.strip()):
+    kinds: set[Kind] = set()
+    for word in (w.strip().lower() for w in words if w.strip()):
         if word == "all":
-            return KINDS
-        if word not in KINDS:
-            raise ValueError(f"show takes meteors, satellites, planes or all, not {word!r}")
-        kinds.append(word)
-    return tuple(dict.fromkeys(kinds)) or ("meteor",)
+            return frozenset(Kind)
+        try:
+            kinds.add(Kind(word.removesuffix("s")))
+        except ValueError:
+            raise SettingsError(f"show takes meteors, satellites, planes or all, not {word!r}") from None
+    return frozenset(kinds) or frozenset({Kind.METEOR})
 
 
 @dataclass
 class Result:
     out_dir: Path
-    video: Path | None
-    meteors: int
-    summary: dict
+    found: Classification
+    video: Path | None  # None when there was nothing to show or no video was asked for
+    files: list[Path] = field(default_factory=list)
+    summary: dict[str, Any] = field(default_factory=dict)
 
 
-Progress = Callable[[str, float], None]
+def process(
+    video: str | Path,
+    out_dir: str | Path,
+    *,
+    lens: Lens | None = None,
+    rules: Rules | None = None,
+    style: Style | None = None,
+    sky_region: tuple[int, int, int, int] | None = None,
+    make_video: bool = True,
+    find_slow_objects: bool = True,
+    tracker_factory: TrackerFactory = sky_tracker_factory,
+    progress: Progress | None = None,
+) -> Result:
+    """Finds the meteors (and satellites and planes) in a video and writes everything into `out_dir`.
 
-
-def run(video: str, out_dir: str | Path, lens: Lens = Lens(), *, sky_region: tuple[int, int, int, int] | None = None,
-        rules: Rules = Rules(), style: Style = Style(), make_video: bool = True, slow_objects: bool = True,
-        progress: Progress | None = None) -> Result:
+    Writes meteors.mp4 (when anything is shown), trajectories.png and heatmap.png (when there are meteors),
+    meteors.csv, satellites_planes.csv, meteor_points.csv, rejected.csv and summary.json.
+    """
+    lens, rules, style = lens or Lens(), rules or Rules(), style or Style()
+    report = progress or (lambda stage, fraction: None)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    report = progress or (lambda stage, fraction: None)
 
-    fps, width, height, _ = video_info(video)
-    camera = lens.camera(width, height)   # fail on bad lens settings before the long scan
-
-    found = scan(video, sky_region=sky_region, slow_objects=slow_objects or any(k != "meteor" for k in style.show),
-                 progress=lambda f: report("Finding moving objects", f))
+    info = probe(video)
+    camera = lens.camera(info.width, info.height)  # bad lens settings fail now, not after an hour of scanning
+    scanned = scan(
+        video,
+        sky_region=sky_region,
+        tracker_factory=tracker_factory,
+        slow_objects=find_slow_objects or bool(style.show - {Kind.METEOR}),
+        progress=lambda f: report("Finding moving objects", f),
+    )
     report("Sorting meteors from everything else", 0.0)
-    meteors, rejected = find_meteors(found, camera, rules, altitude_km=lens.altitude_km)
-    others, rejected_slow = find_slow_objects(found, meteors, camera, rules)
+    found = classify(scanned, camera, rules, lens.altitude_km)
+    log.info(
+        "%d meteors, %d satellites, %d planes, %d rejected",
+        len(found.meteors),
+        len(found.satellites),
+        len(found.planes),
+        len(found.rejected),
+    )
 
-    scene = main_scene(found, meteors)
-    point = radiant([m for m in meteors if m.scene == scene], found.width)
-    images = {}
-    if meteors:
-        images["trajectories.png"] = trails(found, meteors, others, point)
-        images["heatmap.png"] = heatmap(found, meteors)
-        for name, image in images.items():
+    scene = busiest_scene(found.meteors)
+    radiant = find_radiant([m for m in found.meteors if m.scene == scene], scanned.width)
+    files: list[Path] = []
+    stills = []
+    if found.meteors:
+        for name, image in (
+            ("trajectories.png", trajectories(scanned, found.meteors, found.others, radiant)),
+            ("heatmap.png", heatmap(scanned, found.meteors)),
+        ):
             cv2.imwrite(str(out / name), image)
+            files.append(out / name)
+            stills.append(image)
 
-    highlight = out / "meteors.mp4"
-    ranges: list[tuple[int, int]] = []
+    video_path: Path | None = None
+    clips: list[tuple[int, int]] = []
     if make_video:
-        styled = replace(style, end_cards=list(images.values()))
-        ranges = write_highlights(found, meteors, str(highlight), styled,
-                                  progress=lambda f: report("Writing the highlight video", f), others=others)
-    write_meteors_csv(out / "meteors.csv", meteors)
-    write_objects_csv(out / "satellites_planes.csv", others)
-    write_points_csv(out / "meteor_points.csv", [*meteors, *others], found.fps, camera)
-    write_rejected_csv(out / "rejected.csv", [*rejected, *rejected_slow], found.fps)
-    data = summary(found, meteors, [*rejected, *rejected_slow], camera, ranges,
-                   {"lens": asdict(lens), "sky_region": sky_region, "show": list(style.show),
-                    "rules": asdict(rules)}, others=others, radiant=point, radiant_scene=scene)
+        clips = write_highlights(
+            scanned,
+            found.meteors,
+            out / "meteors.mp4",
+            others=found.others,
+            style=style,
+            end_cards=stills,
+            progress=lambda f: report("Writing the highlight video", f),
+        )
+        if clips:
+            video_path = out / "meteors.mp4"
+            files.append(video_path)
+
+    tables: dict[str, Callable[[Path], None]] = {
+        "meteors.csv": lambda p: write_meteors(p, found.meteors),
+        "satellites_planes.csv": lambda p: write_satellites_and_planes(p, found.others),
+        "meteor_points.csv": lambda p: write_points(p, found.objects, camera),
+        "rejected.csv": lambda p: write_rejected(p, found.rejected, scanned.fps),
+    }
+    for name, write in tables.items():
+        write(out / name)
+        files.append(out / name)
+    settings = {
+        "lens": asdict(lens),
+        "rules": asdict(rules),
+        "sky_region": sky_region,
+        "show": sorted(k.value for k in style.show),
+        "trails": style.trails,
+    }
+    data = summary(scanned, found, camera, radiant, scene, clips, settings)
     write_summary(out / "summary.json", data)
+    files.append(out / "summary.json")
     report("Done", 1.0)
-    return Result(out, highlight if ranges else None, len(meteors), data)
+    return Result(out, found, video_path, files, data)

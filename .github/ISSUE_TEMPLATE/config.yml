@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Sky Tracker licences and trial keys
+    url: https://sky-tracker.deneb-systems.com
+    about: Questions about the Sky Tracker SDK, its licence or a trial key

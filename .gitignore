@@ -8,3 +8,8 @@ build/
 *.mp4
 *.mov
 *.mkv
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/

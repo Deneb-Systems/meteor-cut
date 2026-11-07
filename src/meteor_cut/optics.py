@@ -13,6 +13,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from .errors import SettingsError
+
 EARTH_RADIUS_KM = 6371.0
 # Most meteors burn up 80-110 km up; the speed estimate scales with the altitude assumed.
 DEFAULT_METEOR_ALTITUDE_KM = 95.0
@@ -37,9 +39,10 @@ def parse_sensor(value: str) -> tuple[float, float]:
     try:
         width, height = (float(part) for part in key.split("x"))
     except ValueError:
-        raise ValueError(f"sensor must be one of {', '.join(SENSORS)} or WIDTHxHEIGHT in mm, not {value!r}") from None
+        presets = ", ".join(SENSORS)
+        raise SettingsError(f"sensor must be one of {presets} or WIDTHxHEIGHT in mm, not {value!r}") from None
     if width <= 0 or height <= 0:
-        raise ValueError("sensor width and height must be positive")
+        raise SettingsError("sensor width and height must be positive")
     return width, height
 
 
@@ -55,17 +58,30 @@ class Camera:
     roll_deg: float = 0.0
 
     @classmethod
-    def from_lens(cls, width_px: int, height_px: int, focal_mm: float, sensor_width_mm: float,
-                  tilt_deg: float | None = None, roll_deg: float = 0.0) -> "Camera":
+    def from_lens(
+        cls,
+        width_px: int,
+        height_px: int,
+        focal_mm: float,
+        sensor_width_mm: float,
+        tilt_deg: float | None = None,
+        roll_deg: float = 0.0,
+    ) -> Camera:
         if focal_mm <= 0 or sensor_width_mm <= 0:
-            raise ValueError("focal length and sensor width must be positive")
+            raise SettingsError("focal length and sensor width must be positive")
         return cls(width_px, height_px, focal_mm / sensor_width_mm * width_px, tilt_deg, roll_deg)
 
     @classmethod
-    def from_fov(cls, width_px: int, height_px: int, horizontal_fov_deg: float,
-                 tilt_deg: float | None = None, roll_deg: float = 0.0) -> "Camera":
+    def from_fov(
+        cls,
+        width_px: int,
+        height_px: int,
+        horizontal_fov_deg: float,
+        tilt_deg: float | None = None,
+        roll_deg: float = 0.0,
+    ) -> Camera:
         if not 1.0 <= horizontal_fov_deg < 179.0:
-            raise ValueError("horizontal field of view must be between 1 and 179 degrees")
+            raise SettingsError("horizontal field of view must be between 1 and 179 degrees")
         focal_px = (width_px / 2) / math.tan(math.radians(horizontal_fov_deg) / 2)
         return cls(width_px, height_px, focal_px, tilt_deg, roll_deg)
 
@@ -105,7 +121,9 @@ def slant_range_km(elevation_deg: float, altitude_km: float = DEFAULT_METEOR_ALT
 
 
 @dataclass(frozen=True)
-class MeteorSpeed:
+class AngularMotion:
+    """How far and how fast an object crossed the sky, and, for a meteor, an estimate in km/s."""
+
     angular_length_deg: float
     angular_speed_deg_s: float
     elevation_start_deg: float | None
@@ -116,15 +134,26 @@ class MeteorSpeed:
     sky_speed_km_s: float | None
 
 
-def meteor_speed(camera: Camera, start: tuple[float, float], end: tuple[float, float], duration_s: float,
-                 altitude_km: float = DEFAULT_METEOR_ALTITUDE_KM, min_elevation_deg: float = 3.0) -> MeteorSpeed:
+def measure_motion(
+    camera: Camera,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    duration_s: float,
+    altitude_km: float | None = DEFAULT_METEOR_ALTITUDE_KM,
+    min_elevation_deg: float = 3.0,
+) -> AngularMotion:
+    """Angular length and speed between two pixels; km/s too when the tilt and an altitude are known.
+
+    Pass altitude_km=None for objects that are not meteors (satellites, planes): their height is unknown, so there is
+    no km/s estimate.
+    """
     length = angle_deg(camera.ray(*start), camera.ray(*end))
     speed = length / duration_s if duration_s > 0 else float("nan")
     e0, e1 = camera.elevation_deg(*start), camera.elevation_deg(*end)
     range_km = sky_speed = None
-    if e0 is not None and e1 is not None:
+    if e0 is not None and e1 is not None and altitude_km is not None:
         mid = camera.elevation_deg((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
         if mid is not None and mid >= min_elevation_deg:
             range_km = slant_range_km(mid, altitude_km)
             sky_speed = math.radians(speed) * range_km
-    return MeteorSpeed(length, speed, e0, e1, range_km, sky_speed)
+    return AngularMotion(length, speed, e0, e1, range_km, sky_speed)
