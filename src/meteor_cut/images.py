@@ -117,7 +117,7 @@ def trajectories(scan: Scan, meteors: Sequence[SkyObject], radiant: Radiant | No
         members = set(radiant.numbers)
         for m in shown:
             if m.number in members:
-                draw.line((m.start, (radiant.x, radiant.y)), fill=(255, 255, 255, 46), width=1)
+                draw.line((m.start, (radiant.x, radiant.y)), fill=(255, 255, 255, 110), width=max(1, width // 2))
     speeds = [m.speed_value for m in shown]
     lo, hi = (min(speeds), max(speeds)) if speeds else (0.0, 1.0)
     for m in sorted(shown, key=lambda m: m.speed_value):

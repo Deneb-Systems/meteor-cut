@@ -26,12 +26,12 @@ def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.Im
     return ImageFont.load_default(size)
 
 
-def clock(seconds: float) -> str:
-    """01:15.2 under an hour, 4:01:02 above."""
+def clock(seconds: float, *, hours_always: bool = False) -> str:
+    """01:15.2 under an hour, 4:01:02 above, or always with hours (for lists from a video over an hour long)."""
     seconds = max(0.0, seconds)
     hours, rest = divmod(seconds, 3600)
     minutes, rest = divmod(rest, 60)
-    if hours:
+    if hours or hours_always:
         return f"{int(hours)}:{int(minutes):02d}:{int(rest):02d}"
     return f"{int(minutes):02d}:{rest:04.1f}"
 

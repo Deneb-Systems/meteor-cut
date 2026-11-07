@@ -105,6 +105,7 @@ class Renderer:
         self.video_x = (area_w - self.video_w) // 2
         self.video_y = style.bar_height + (area_h - self.video_h) // 2
         self.linger = round(0.5 * scan.fps)
+        self.long = scan.duration_s >= 3600  # times as H:MM:SS throughout
         self._panel_cache: dict[tuple[int, ...], np.ndarray] = {}
         self._trails = np.zeros((self.video_h, self.video_w, 3), np.uint8)
         self._trailed: set[tuple[Kind, int]] = set()
@@ -216,7 +217,7 @@ class Renderer:
             row_font = font(19, bold=on)
             draw.text((28, y), f"{m.rank:>2}", font=row_font, fill=CYAN if on else MUTED)
             draw.text((72, y), m.label, font=row_font, fill=CYAN if on else WHITE)
-            draw.text((140, y), clock(m.start_s), font=font(19), fill=MUTED)
+            draw.text((140, y), clock(m.start_s, hours_always=self.long), font=font(19), fill=MUTED)
             draw.text((250, y), main, font=row_font, fill=CYAN if on else WHITE)
             if extra:
                 draw.text((356, y), extra, font=font(19), fill=CYAN if on else MUTED)
@@ -233,7 +234,7 @@ class Renderer:
         draw = ImageDraw.Draw(header)
         draw.text((32, 30), "Meteor Cut", font=font(30, bold=True), fill=WHITE)
         draw.text((32, 72), "tracked with Sky Tracker", font=font(19), fill=MUTED)
-        now = f"source {clock(index / self.scan.fps)}"
+        now = f"source {clock(index / self.scan.fps, hours_always=self.long)}"
         if active:
             now += "  ·  " + "  ".join(f"{o.label} {speed_text(o)[0]}" for o in active[:4])
         draw.text((area_w - 32, 44), now, font=font(24), fill=CYAN if active else MUTED, anchor="ra")

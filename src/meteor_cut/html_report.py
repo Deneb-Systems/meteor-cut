@@ -60,7 +60,7 @@ def _table(table_id: str, headers: Sequence[str], rows: Sequence[Sequence[Any]])
     return f'<table id="{table_id}" class="sortable"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
 
 
-def _meteor_rows(meteors: Sequence[SkyObject]) -> list[list[Any]]:
+def _meteor_rows(meteors: Sequence[SkyObject], long: bool) -> list[list[Any]]:
     rows = []
     for m in meteors:
         mo = m.motion
@@ -80,12 +80,12 @@ def _meteor_rows(meteors: Sequence[SkyObject]) -> list[list[Any]]:
     return rows
 
 
-def _other_rows(others: Sequence[SkyObject]) -> list[list[Any]]:
+def _other_rows(others: Sequence[SkyObject], long: bool) -> list[list[Any]]:
     return [
         [
             o.label,
             o.kind.value,
-            clock(o.start_s),
+            clock(o.start_s, hours_always=long),
             _num(o.duration_s, 0),
             _num(o.speed_px_s, 1),
             _num(o.motion.angular_speed_deg_s if o.motion else None, 2),
@@ -157,10 +157,12 @@ def write_html_report(
         meteors=_table(
             "meteors",
             ["Meteor", "Speed rank", "Time", "Seconds", "px/s", "°/s", "km/s ≥", "Length px", "Direction °"],
-            _meteor_rows(found.meteors),
+            _meteor_rows(found.meteors, scan.duration_s >= 3600),
         ),
         others=_table(
-            "others", ["Object", "Kind", "Time", "Seconds", "px/s", "°/s", "Direction °"], _other_rows(found.others)
+            "others",
+            ["Object", "Kind", "Time", "Seconds", "px/s", "°/s", "Direction °"],
+            _other_rows(found.others, scan.duration_s >= 3600),
         ),
         others_count=len(found.others),
         rejected=rejected or "<li>Nothing</li>",

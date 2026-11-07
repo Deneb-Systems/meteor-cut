@@ -27,6 +27,10 @@ def test_clock(seconds, text):
     assert clock(seconds) == text
 
 
+def test_clock_with_hours_for_long_videos():
+    assert clock(75.25, hours_always=True) == "0:01:15"
+
+
 def test_ascii_text_for_opencv():
     assert ascii_text("12.5°/s ≥30 km/s") == "12.5 deg/s >30 km/s"
 
