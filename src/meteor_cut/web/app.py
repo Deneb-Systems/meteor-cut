@@ -30,8 +30,10 @@ from ..tracking import TrackerFactory, sky_tracker_factory
 log = logging.getLogger(__name__)
 
 OUTPUTS = (
+    "report.html",
     "meteors.mp4",
     "trajectories.png",
+    "satellites.png",
     "heatmap.png",
     "meteors.csv",
     "satellites_planes.csv",

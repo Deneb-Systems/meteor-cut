@@ -19,7 +19,7 @@ all of it ──► render ──► meteors.mp4      report ──► CSV + sum
 | `optics.py` | Pixels to directions in the sky; angular speed; km/s |
 | `radiant.py` | The point a shower's meteors trace back to |
 | `images.py`, `render.py` | The pictures and the highlight video |
-| `report.py` | CSV and JSON |
+| `report.py`, `html_report.py` | CSV and JSON; the report page |
 | `pipeline.py` | `process()`: the whole run |
 | `cli.py`, `web/` | The command line and the upload page |
 

@@ -55,8 +55,10 @@ Results go to `night-meteors/` beside the video (choose with `-o`):
 
 | File | What is in it |
 |---|---|
-| `meteors.mp4` | The highlight video, 1920x1080, ending on the two pictures below |
-| `trajectories.png` | Every trajectory of the night: meteors coloured by speed, satellites and planes, and the radiant |
+| `report.html` | Everything on one page to read or share: totals, meteors per hour, the pictures, sortable tables |
+| `meteors.mp4` | The highlight video, 1920x1080, ending on the pictures below |
+| `trajectories.png` | Every meteor of the night, coloured by speed, and the radiant they trace back to |
+| `satellites.png` | Every satellite and plane |
 | `heatmap.png` | Where in the frame meteors appeared |
 | `meteors.csv` | One row per meteor: time, position, length, direction, speed and rank by speed |
 | `satellites_planes.csv` | One row per satellite or plane |

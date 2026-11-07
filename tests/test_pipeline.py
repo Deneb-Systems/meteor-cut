@@ -19,8 +19,10 @@ def test_process_writes_every_output(night_video, fake_tracker, tmp_path):
     )
     names = {p.name for p in result.files}
     assert names == {
+        "report.html",
         "meteors.mp4",
         "trajectories.png",
+        "satellites.png",
         "heatmap.png",
         "meteors.csv",
         "satellites_planes.csv",
@@ -79,3 +81,14 @@ def test_analyse_reuses_a_scan_with_other_settings(night_video, fake_tracker, tm
     loose = analyse(scanned, tmp_path / "loose", make_video=False)
     assert not strict.found.meteors and len(loose.found.meteors) == 1
     assert len(fake_tracker.created) == 2  # scanned once: the fast and the slow tracker
+
+
+def test_the_html_report_is_self_contained(night_video, fake_tracker, tmp_path):
+    process(
+        night_video.path, tmp_path, lens=Lens(hfov_deg=90, tilt_deg=40), tracker_factory=fake_tracker, make_video=False
+    )
+    page = (tmp_path / "report.html").read_text()
+    assert '<table id="meteors"' in page and "#1" in page and "S1" in page
+    assert page.count("data:image/jpeg;base64,") == 3  # meteors, satellites and planes, heat map
+    assert "<video" not in page  # no video was made
+    assert "http" not in page.split("<footer>")[0]  # no external files

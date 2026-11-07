@@ -54,6 +54,8 @@ def test_an_upload_is_processed_and_its_results_served(client, night_video):
         time.sleep(0.05)
     assert status["error"] is None, status["error"]
     assert status["summary"]["meteors"] == 1 and "meteors.mp4" in status["files"]
+    with client.get(f"/jobs/{job}/report.html") as report:
+        assert b"Meteor Cut report" in report.data
     with client.get(f"/jobs/{job}/meteors.csv") as table:
         assert table.data.startswith(b"number,")
     with client.get(f"/jobs/{job}/heatmap.png?download=1") as image:

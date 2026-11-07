@@ -25,6 +25,7 @@ class Radiant:
     y: float
     members: int  # meteors whose paths point back to it
     spread_px: float  # RMS distance of their lines from the point
+    numbers: tuple[int, ...] = ()  # those meteors' numbers
 
     def in_frame(self, width: int, height: int) -> bool:
         return 0 <= self.x < width and 0 <= self.y < height
@@ -50,12 +51,14 @@ def _closest_point(lines: Sequence[tuple[np.ndarray, np.ndarray]]) -> np.ndarray
 def find_radiant(meteors: Sequence[SkyObject], width: int, min_members: int = 5) -> Radiant | None:
     """The shower's radiant, or None when fewer than `min_members` meteors agree on one."""
     lines = []
+    owners: list[int] = []
     for m in meteors:
         start, end = np.array(m.start), np.array(m.end)
         direction = end - start
         norm = float(np.linalg.norm(direction))
         if norm > 0:
             lines.append((start, direction / norm))
+            owners.append(m.number)
     if len(lines) < min_members:
         return None
     keep = lines
@@ -77,4 +80,6 @@ def find_radiant(meteors: Sequence[SkyObject], width: int, min_members: int = 5)
     if np.linalg.norm(point - np.array([width / 2, 0])) > 4 * width:  # nearly parallel paths: no usable point
         return None
     spread = math.sqrt(sum(_cross(d, point - p) ** 2 for p, d in keep) / len(keep))
-    return Radiant(float(point[0]), float(point[1]), len(keep), spread)
+    kept = {id(line) for line in keep}
+    numbers = tuple(n for n, line in zip(owners, lines, strict=True) if id(line) in kept)
+    return Radiant(float(point[0]), float(point[1]), len(keep), spread, numbers)

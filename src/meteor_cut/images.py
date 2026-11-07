@@ -90,41 +90,40 @@ def heatmap(scan: Scan, meteors: Sequence[SkyObject]) -> np.ndarray:
     return _to_bgr(image)
 
 
-def trajectories(
-    scan: Scan, meteors: Sequence[SkyObject], others: Sequence[SkyObject], radiant: Radiant | None
-) -> np.ndarray:
-    """Every trajectory of the busiest scene on one picture: meteors coloured by speed, satellites and planes."""
+def _arrow(draw: ImageDraw.ImageDraw, obj: SkyObject, colour: tuple[int, int, int], width: int) -> None:
+    ex, ey = obj.end
+    angle = math.atan2(ey - obj.start[1], ex - obj.start[0])
+    size = width * 5
+    draw.polygon(
+        [
+            (ex, ey),
+            (ex - size * math.cos(angle - 0.45), ey - size * math.sin(angle - 0.45)),
+            (ex - size * math.cos(angle + 0.45), ey - size * math.sin(angle + 0.45)),
+        ],
+        fill=colour,
+    )
+
+
+def trajectories(scan: Scan, meteors: Sequence[SkyObject], radiant: Radiant | None) -> np.ndarray:
+    """Every meteor of the busiest scene on one picture, coloured by speed, with the radiant they trace back to."""
     scene = busiest_scene(meteors)
     base = (background(scan, scene).astype(np.float32) * 0.55).astype(np.uint8)
     image = Image.fromarray(cv2.cvtColor(base, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(image, "RGBA")
     shown = [m for m in meteors if m.scene == scene]
-    lights = [o for o in others if o.scene == scene]
     width = max(2, scan.width // 640)
-    label_font = font(max(12, scan.width // 110))
 
     if radiant:
+        members = set(radiant.numbers)
         for m in shown:
-            draw.line((m.start, (radiant.x, radiant.y)), fill=(255, 255, 255, 38), width=1)
-    for o in lights:
-        draw.line([(p.cx, p.cy) for p in o.points], fill=KIND_RGB[o.kind], width=width)
-        draw.text((o.end[0] + 6, o.end[1] - 6), o.label, font=label_font, fill=KIND_RGB[o.kind])
+            if m.number in members:
+                draw.line((m.start, (radiant.x, radiant.y)), fill=(255, 255, 255, 46), width=1)
     speeds = [m.speed_value for m in shown]
     lo, hi = (min(speeds), max(speeds)) if speeds else (0.0, 1.0)
     for m in sorted(shown, key=lambda m: m.speed_value):
         colour = _speed_rgb((m.speed_value - lo) / (hi - lo) if hi > lo else 0.5)
         draw.line([(p.cx, p.cy) for p in m.points], fill=colour, width=width + 1)
-        ex, ey = m.end
-        angle = math.atan2(ey - m.start[1], ex - m.start[0])
-        size = width * 5
-        draw.polygon(
-            [
-                (ex, ey),
-                (ex - size * math.cos(angle - 0.45), ey - size * math.sin(angle - 0.45)),
-                (ex - size * math.cos(angle + 0.45), ey - size * math.sin(angle + 0.45)),
-            ],
-            fill=colour,
-        )
+        _arrow(draw, m, colour, width)
     if radiant and radiant.in_frame(scan.width, scan.height):
         r = scan.width // 80
         draw.ellipse((radiant.x - r, radiant.y - r, radiant.x + r, radiant.y + r), outline=TEXT, width=width)
@@ -134,12 +133,40 @@ def trajectories(
     if shown:
         slowest, fastest = min(shown, key=lambda m: m.speed_value), max(shown, key=lambda m: m.speed_value)
         lines[0] += f" ({speed_text(slowest)[0]} to {speed_text(fastest)[0]})"
-    satellites = sum(1 for o in lights if o.kind is Kind.SATELLITE)
-    planes = sum(1 for o in lights if o.kind is Kind.PLANE)
-    if satellites or planes:
-        lines.append(f"{satellites} satellites (green), {planes} planes (orange)")
     if radiant:
         where = "in the frame" if radiant.in_frame(scan.width, scan.height) else "outside the frame"
-        lines.append(f"{radiant.members} meteors trace back to one radiant, {where} (faint lines)")
-    _caption(image, "Every trajectory" + (f" · scene {scene + 1}" if scan.cuts else ""), lines)
+        lines.append(f"{radiant.members} of them trace back to one radiant, {where} (faint lines)")
+    _caption(image, "Every meteor" + (f" · scene {scene + 1}" if scan.cuts else ""), lines)
+    return _to_bgr(image)
+
+
+def satellites_and_planes(scan: Scan, others: Sequence[SkyObject], label_limit: int = 40) -> np.ndarray:
+    """Every satellite and plane of the busiest scene: satellites faint green (busy crossings show as density),
+    planes orange, labelled when there are few enough to read."""
+    scene = Counter(o.scene for o in others).most_common(1)[0][0] if others else 0
+    base = (background(scan, scene).astype(np.float32) * 0.55).astype(np.uint8)
+    image = Image.fromarray(cv2.cvtColor(base, cv2.COLOR_BGR2RGB)).convert("RGBA")
+    layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    shown = [o for o in others if o.scene == scene]
+    width = max(2, scan.width // 640)
+    label_font = font(max(12, scan.width // 110))
+    satellites = [o for o in shown if o.kind is Kind.SATELLITE]
+    planes = [o for o in shown if o.kind is Kind.PLANE]
+    alpha = 255 if len(satellites) <= label_limit else max(60, int(255 * label_limit / len(satellites)))
+    for o in satellites:
+        draw.line([(p.cx, p.cy) for p in o.points], fill=(*KIND_RGB[Kind.SATELLITE], alpha), width=width)
+    for o in planes:
+        draw.line([(p.cx, p.cy) for p in o.points], fill=(*KIND_RGB[Kind.PLANE], 255), width=width + 1)
+        _arrow(draw, o, KIND_RGB[Kind.PLANE], width)
+    for o in [*planes, *(satellites if len(satellites) <= label_limit else [])]:
+        draw.text((o.end[0] + 6, o.end[1] - 6), o.label, font=label_font, fill=(*KIND_RGB[o.kind], 255))
+    image = Image.alpha_composite(image, layer).convert("RGB")
+    hours = scan.duration_s / 3600
+    rate = f", about {len(satellites) / hours:.0f} satellites an hour" if hours >= 1 else ""
+    _caption(
+        image,
+        "Satellites and planes" + (f" · scene {scene + 1}" if scan.cuts else ""),
+        [f"{len(satellites)} satellites (green), {len(planes)} planes (orange){rate}"],
+    )
     return _to_bgr(image)

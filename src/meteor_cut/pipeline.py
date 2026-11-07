@@ -12,7 +12,8 @@ import cv2
 
 from .classify import Classification, Rules, classify
 from .errors import SettingsError
-from .images import busiest_scene, heatmap, trajectories
+from .html_report import write_html_report
+from .images import busiest_scene, heatmap, satellites_and_planes, trajectories
 from .model import Kind, Scan
 from .optics import DEFAULT_METEOR_ALTITUDE_KM, Camera, parse_sensor
 from .radiant import find_radiant
@@ -86,8 +87,9 @@ def process(
 ) -> Result:
     """Finds the meteors (and satellites and planes) in a video and writes everything into `out_dir`.
 
-    Writes meteors.mp4 (when anything is shown), trajectories.png and heatmap.png (when there are meteors),
-    meteors.csv, satellites_planes.csv, meteor_points.csv, rejected.csv and summary.json. This is scan() followed by
+    Writes report.html (everything on one page), meteors.mp4 (when anything is shown), trajectories.png and
+    heatmap.png (when there are meteors), satellites.png (when there are satellites or planes), meteors.csv,
+    satellites_planes.csv, meteor_points.csv, rejected.csv and summary.json. This is scan() followed by
     analyse(); call those two yourself to try other rules or styles without scanning the video again.
     """
     lens, style = lens or Lens(), style or Style()
@@ -147,15 +149,18 @@ def analyse(
     scene = busiest_scene(found.meteors)
     radiant = find_radiant([m for m in found.meteors if m.scene == scene], scanned.width)
     files: list[Path] = []
-    stills = []
+    images = {}
     if found.meteors:
-        for name, image in (
-            ("trajectories.png", trajectories(scanned, found.meteors, found.others, radiant)),
-            ("heatmap.png", heatmap(scanned, found.meteors)),
-        ):
-            cv2.imwrite(str(out / name), image)
-            files.append(out / name)
-            stills.append(image)
+        images["trajectories.png"] = trajectories(scanned, found.meteors, radiant)
+    if found.others:
+        images["satellites.png"] = satellites_and_planes(scanned, found.others)
+    if found.meteors:
+        images["heatmap.png"] = heatmap(scanned, found.meteors)
+    for name, image in images.items():
+        cv2.imwrite(str(out / name), image)
+        files.append(out / name)
+    # The video ends on the pictures of what it showed.
+    stills = [image for name, image in images.items() if name != "satellites.png" or style.show - {Kind.METEOR}]
 
     video_path: Path | None = None
     clips: list[tuple[int, int]] = []
@@ -192,5 +197,7 @@ def analyse(
     data = summary(scanned, found, camera, radiant, scene, clips, settings)
     write_summary(out / "summary.json", data)
     files.append(out / "summary.json")
+    write_html_report(out / "report.html", scanned, found, data, images, video_path.name if video_path else None)
+    files.append(out / "report.html")
     report("Done", 1.0)
     return Result(out, found, video_path, files, data)

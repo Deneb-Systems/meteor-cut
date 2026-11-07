@@ -120,9 +120,11 @@
         ${m.satellites ? stat(m.satellites, 'satellites') : ''}
         ${m.planes ? stat(m.planes, 'planes') : ''}
       </div>
+      ${s.files.includes('report.html') ? `<p><a href="${file('report.html')}" target="_blank" rel="noopener">Open the full report</a> (pictures, charts and every table on one page)</p>` : ''}
       ${s.files.includes('trajectories.png') ? `<div class="shots">
         <a href="${file('trajectories.png')}"><img src="${file('trajectories.png')}" alt="Every trajectory"></a>
         <a href="${file('heatmap.png')}"><img src="${file('heatmap.png')}" alt="Heat map of the meteors"></a></div>` : ''}
+      ${s.files.includes('satellites.png') ? `<div class="shots"><a href="${file('satellites.png')}"><img src="${file('satellites.png')}" alt="Satellites and planes"></a></div>` : ''}
       ${s.files.includes('meteors.mp4') ? `<video controls src="${file('meteors.mp4')}"></video>` : '<p>Nothing to show, so no video.</p>'}
       <p class="files">${s.files.map((f) => `<a href="${file(f)}?download=1">${esc(f)}</a>`).join('')}</p>`;
   }
