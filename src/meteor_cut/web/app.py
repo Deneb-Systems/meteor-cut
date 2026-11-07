@@ -20,6 +20,7 @@ from typing import Any
 
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory
 from werkzeug.datastructures import MultiDict
+from werkzeug.utils import secure_filename
 
 from ..errors import MeteorCutError
 from ..optics import SENSORS
@@ -146,7 +147,10 @@ def create_app(
             return jsonify(error=str(error)), 400
         job = Job(uuid.uuid4().hex, root / uuid.uuid4().hex, Path(upload.filename).name)
         job.folder.mkdir(parents=True)
-        video = job.folder / f"upload{suffix}"
+        # Keep the uploader's file name (made safe) so the report is titled with it, in a folder of its own so it can
+        # never collide with an output such as meteors.mp4.
+        (job.folder / "upload").mkdir()
+        video = job.folder / "upload" / (secure_filename(upload.filename) or f"video{suffix}")
         upload.save(video)
         with lock:
             jobs[job.id] = job

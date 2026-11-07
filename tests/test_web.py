@@ -56,6 +56,8 @@ def test_an_upload_is_processed_and_its_results_served(client, night_video):
     assert status["summary"]["meteors"] == 1 and "meteors.mp4" in status["files"]
     with client.get(f"/jobs/{job}/report.html") as report:
         assert b"Meteor Cut report" in report.data
+        assert b"night.avi" in report.data  # titled with the uploaded file's name
+        assert b"90\xc2\xb0 field of view" in report.data
     with client.get(f"/jobs/{job}/meteors.csv") as table:
         assert table.data.startswith(b"number,")
     with client.get(f"/jobs/{job}/heatmap.png?download=1") as image:
@@ -82,3 +84,14 @@ def test_unknown_jobs_are_404(client):
 )
 def test_loopback_detection(host, local):
     assert _is_loopback(host) is local
+
+
+def test_an_upload_named_like_an_output_does_not_clash(client, night_video):
+    response = upload(client, night_video.path.read_bytes(), "meteors.mp4")
+    job = response.get_json()["id"]
+    for _ in range(600):
+        status = client.get(f"/jobs/{job}").get_json()
+        if status["done"]:
+            break
+        time.sleep(0.05)
+    assert status["error"] is None and status["summary"]["meteors"] == 1 and "meteors.mp4" in status["files"]

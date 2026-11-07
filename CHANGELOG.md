@@ -5,6 +5,11 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The upload page and report match the Sky Tracker website: Manrope (bundled, works offline), large type, rounded
+  cards, drag-and-drop upload with progress, and the report titled with the video's own name.
+
 ## [0.1.0] - 2026-11-07
 
 First release.

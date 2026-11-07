@@ -11,6 +11,7 @@ import html
 import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,33 @@ def _jpeg(image: np.ndarray, width: int = 1600) -> str:
     if not ok:  # pragma: no cover - OpenCV always encodes a valid BGR image
         return ""
     return "data:image/jpeg;base64," + base64.b64encode(data.tobytes()).decode("ascii")
+
+
+def _font_data() -> str:
+    """Manrope, the Sky Tracker website's font, embedded so the page looks the same offline (SIL OFL)."""
+    data = files("meteor_cut.web").joinpath("static/fonts/manrope-latin-wght-normal.woff2").read_bytes()
+    return "data:font/woff2;base64," + base64.b64encode(data).decode("ascii")
+
+
+def _describe_settings(settings: Mapping[str, Any]) -> str:
+    """The settings that shaped the results, in words."""
+    lens = settings.get("lens") or {}
+    parts = []
+    if lens.get("hfov_deg"):
+        parts.append(f"{lens['hfov_deg']:g}° field of view")
+    elif lens.get("focal_mm"):
+        parts.append(f"{lens['focal_mm']:g} mm lens, {lens.get('sensor') or 'full-frame'} sensor")
+    else:
+        parts.append("lens not given")
+    if lens.get("tilt_deg") is not None:
+        parts.append(f"tilt {lens['tilt_deg']:g}°, meteors at {lens.get('altitude_km', 95):g} km")
+    if settings.get("sky_region"):
+        x, y, w, h = settings["sky_region"]
+        parts.append(f"sky region {w}x{h} at {x},{y}")
+    shown = settings.get("show") or ["meteor"]
+    parts.append("video shows " + ", ".join(f"{k}s" for k in shown))
+    parts.append("trails " + ("on" if settings.get("trails", True) else "off"))
+    return "; ".join(parts)
 
 
 def _num(value: float | None, digits: int = 1) -> str:
@@ -146,9 +174,10 @@ def write_html_report(
             key=lambda pair: -pair[1],
         )
     )
-    settings = html.escape(str({k: v for k, v in s["settings"].items() if k != "rules"}))
+    settings = html.escape(_describe_settings(s["settings"]))
 
     page = TEMPLATE.format(
+        font=_font_data(),
         name=name,
         cards=card_html,
         chart=_per_hour_chart(found.meteors, scan.duration_s),
@@ -166,7 +195,10 @@ def write_html_report(
         ),
         others_count=len(found.others),
         rejected=rejected or "<li>Nothing</li>",
-        versions=html.escape(f"Meteor Cut {s['meteor_cut_version']}, Sky Tracker {s['sky_tracker_version'] or '?'}"),
+        versions=html.escape(
+            f"Meteor Cut {s['meteor_cut_version']}"
+            + (f", Sky Tracker {s['sky_tracker_version']}" if s["sky_tracker_version"] else "")
+        ),
         settings=settings,
     )
     path.write_text(page, encoding="utf-8")
@@ -176,35 +208,56 @@ TEMPLATE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Meteor Cut report: {name}</title>
 <style>
-  :root {{ --bg:#05080b; --panel:#0d1418; --line:#1f2b31; --text:#e6edf0; --muted:#8c989e; --signal:#83e8fa; }}
+  @font-face {{ font-family:"Manrope Variable"; font-weight:200 800; font-display:swap;
+               src:url("{font}") format("woff2-variations") }}
+  :root {{ --ink:#030507; --ink-soft:#070a0d; --graphite:#101519; --graphite-light:#182126; --silver:#d5dcdf;
+          --silver-bright:#f2f5f5; --muted:#7b878c; --signal:#83e8fa;
+          --line:color-mix(in srgb, var(--silver) 16%, transparent);
+          --body:"Manrope Variable",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif }}
   * {{ box-sizing:border-box }}
-  body {{ margin:0; background:var(--bg); color:var(--text);
-         font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif }}
-  main {{ max-width:1180px; margin:0 auto; padding:40px 20px 80px }}
-  h1 {{ font-size:34px; margin:0 0 4px; letter-spacing:-.02em }} h2 {{ margin:44px 0 14px; font-size:22px }}
-  .lead {{ color:var(--muted); margin:0 0 26px }}
-  .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px }}
-  .card {{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px }}
-  .card b {{ display:block; font-size:26px }} .card span {{ color:var(--muted); font-size:13px }}
-  svg {{ width:100%; max-width:760px; height:auto }} .bar {{ fill:var(--signal) }}
-  .value, .axis {{ fill:var(--muted); font-size:12px; text-anchor:middle }}
-  video {{ width:100%; border-radius:12px; background:#000 }}
-  figure {{ margin:0 0 22px }} figure img {{ width:100%; border-radius:12px; display:block }}
-  figcaption {{ color:var(--muted); font-size:13px; margin-top:6px }}
-  .scroll {{ max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:12px }}
-  table {{ border-collapse:collapse; width:100%; font-size:14px; font-variant-numeric:tabular-nums }}
-  th, td {{ padding:7px 12px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap }}
+  html {{ background:var(--ink); color-scheme:dark }}
+  body {{ margin:0; background:var(--ink); color:var(--silver); font:16px/1.6 var(--body);
+         -webkit-font-smoothing:antialiased }}
+  main {{ width:min(100%,72rem); margin:0 auto; padding:clamp(4rem,9vw,6.5rem) clamp(1.125rem,4vw,3rem) 6rem }}
+  a {{ color:var(--signal) }}
+  .kicker {{ margin:0 0 .75rem; color:var(--signal); font-size:1.125rem; font-weight:600 }}
+  h1 {{ margin:0; color:var(--silver-bright); font-size:clamp(2.75rem,7vw,5rem); font-weight:700; line-height:1.02;
+       letter-spacing:-.045em; overflow-wrap:anywhere }}
+  h2 {{ margin:clamp(3.5rem,8vw,5.5rem) 0 1.25rem; color:var(--silver-bright); font-size:clamp(1.75rem,3.5vw,2.5rem);
+       font-weight:700; letter-spacing:-.035em }}
+  .lead {{ margin:-.5rem 0 1.5rem; color:#a3abae; font-size:1.0625rem }}
+  .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:1rem; margin-top:2.5rem }}
+  .card {{ padding:1.5rem; border-radius:1.5rem; background:var(--graphite) }}
+  .card b {{ display:block; color:var(--silver-bright); font-size:clamp(2rem,4vw,2.75rem); font-weight:700;
+            line-height:1; letter-spacing:-.035em; font-variant-numeric:tabular-nums }}
+  .card span {{ display:block; margin-top:.5rem; color:var(--muted); font-size:.9375rem }}
+  .panel {{ padding:clamp(1.25rem,3vw,2rem); border-radius:1.75rem; background:var(--graphite) }}
+  svg {{ display:block; width:100%; height:auto }} .bar {{ fill:var(--signal) }}
+  .value, .axis {{ fill:var(--muted); font:600 12px var(--body); text-anchor:middle }}
+  video {{ display:block; width:100%; border-radius:1.5rem; background:#000 }}
+  figure {{ margin:0 0 1.5rem }} figure img {{ display:block; width:100%; border-radius:1.5rem }}
+  figcaption {{ margin-top:.625rem; color:var(--muted); font-size:.9375rem }}
+  .scroll {{ max-height:34rem; overflow:auto; border-radius:1.5rem; background:var(--graphite) }}
+  table {{ width:100%; border-collapse:collapse; font-size:.9375rem; font-variant-numeric:tabular-nums }}
+  th, td {{ padding:.625rem 1rem; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap }}
   th:first-child, td:first-child {{ text-align:left }}
-  th {{ position:sticky; top:0; background:var(--panel); cursor:pointer; user-select:none }}
-  th:hover {{ color:var(--signal) }} tbody tr:hover {{ background:#0b1a20 }}
-  ul {{ padding-left:20px }} li {{ margin:4px 0 }} code {{ color:var(--muted); font-size:12px }}
-  footer {{ color:var(--muted); font-size:13px; margin-top:44px }}
+  th {{ position:sticky; top:0; background:var(--graphite-light); color:var(--silver-bright); font-weight:600;
+       cursor:pointer; user-select:none }}
+  th:hover {{ color:var(--signal) }} tbody tr:hover {{ background:var(--ink-soft) }}
+  td:first-child {{ color:var(--silver-bright); font-weight:600 }}
+  ul.reasons {{ margin:0; padding:0; list-style:none }}
+  ul.reasons li {{ display:flex; gap:1rem; align-items:baseline; padding:.75rem 0;
+                  border-bottom:1px solid var(--line) }}
+  ul.reasons b {{ min-width:3.5rem; color:var(--silver-bright); font-size:1.25rem; text-align:right;
+                 font-variant-numeric:tabular-nums }}
+  code {{ margin-left:auto; color:var(--muted); font-size:.8125rem }}
+  footer {{ margin-top:4rem; color:var(--muted); font-size:.875rem }}
 </style></head><body><main>
-<h1>Meteor Cut report</h1>
-<p class="lead">{name}</p>
+<p class="kicker">Meteor Cut report</p>
+<h1>{name}</h1>
 <div class="cards">{cards}</div>
-<h2>Meteors per hour of recording</h2>
-{chart}
+<h2>Meteors per hour</h2>
+<div class="panel">{chart}</div>
 <h2>Highlights</h2>
 {video}
 <h2>Pictures</h2>
@@ -216,8 +269,8 @@ TEMPLATE = """<!doctype html>
 <div class="scroll">{others}</div>
 <h2>Left out</h2>
 <p class="lead">Everything that moved but was not kept, by reason. rejected.csv lists each one.</p>
-<ul>{rejected}</ul>
-<footer>{versions}. Settings: {settings}</footer>
+<ul class="reasons">{rejected}</ul>
+<footer>{versions}. {settings}.</footer>
 </main>
 <script>
   for (const table of document.querySelectorAll('table.sortable')) {{

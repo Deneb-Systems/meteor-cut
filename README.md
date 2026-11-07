@@ -107,4 +107,5 @@ up a development copy; the tests run without a Sky Tracker licence.
 ## Licence
 
 Meteor Cut is MIT-licensed: see [LICENSE](LICENSE). It uses the Sky Tracker SDK, which has its
-[own licence](https://sky-tracker.deneb-systems.com/terms/).
+[own licence](https://sky-tracker.deneb-systems.com/terms/). The upload page and report use the Manrope typeface,
+included under the SIL Open Font License ([src/meteor_cut/web/static/fonts/Manrope-OFL.txt](src/meteor_cut/web/static/fonts/Manrope-OFL.txt)).

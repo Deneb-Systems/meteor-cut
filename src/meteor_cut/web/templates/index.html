@@ -3,130 +3,253 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>Meteor Cut</title>
   <style>
-    :root { --bg:#05080b; --panel:#0d1418; --line:#1f2b31; --text:#e6edf0; --muted:#8c989e; --signal:#83e8fa; }
+    @font-face {
+      font-family: "Manrope Variable";
+      font-style: normal;
+      font-display: swap;
+      font-weight: 200 800;
+      src: url("{{ url_for('static', filename='fonts/manrope-latin-wght-normal.woff2') }}") format("woff2-variations");
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+        U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: "Manrope Variable";
+      font-style: normal;
+      font-display: swap;
+      font-weight: 200 800;
+      src: url("{{ url_for('static', filename='fonts/manrope-latin-ext-wght-normal.woff2') }}") format("woff2-variations");
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+        U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    :root {
+      --ink: #030507; --ink-soft: #070a0d; --graphite: #101519; --graphite-light: #182126;
+      --silver: #d5dcdf; --silver-bright: #f2f5f5; --muted: #7b878c; --signal: #83e8fa; --danger: #ff9d8a;
+      --line: color-mix(in srgb, var(--silver) 16%, transparent);
+      --line-strong: color-mix(in srgb, var(--silver) 31%, transparent);
+      --body: "Manrope Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --gutter: clamp(1.125rem, 4vw, 3rem);
+    }
     * { box-sizing: border-box }
-    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif }
-    main { max-width: 880px; margin: 0 auto; padding: 48px 20px 80px }
-    h1 { font-size: 40px; letter-spacing: -.02em; margin: 0 0 6px }
-    p.lead { color: var(--muted); margin: 0 0 32px }
-    form, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px; margin-bottom: 24px }
-    label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px }
-    input, select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: #071014; color: var(--text); font: inherit }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 18px 0 }
-    .hint { color: var(--muted); font-size: 13px; margin-top: 4px }
-    .checks { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin: 4px 0 14px; color: var(--muted) }
-    .checks label { display: flex; gap: 6px; align-items: center; margin: 0; color: var(--text) }
-    .checks input { width: auto }
-    button { background: var(--signal); color: #031015; border: 0; border-radius: 999px; padding: 12px 22px; font: 600 16px system-ui, sans-serif; cursor: pointer }
-    button:disabled { opacity: .5; cursor: wait }
-    .bar { height: 8px; background: #14232a; border-radius: 99px; overflow: hidden; margin: 12px 0 }
-    .bar div { height: 100%; width: 0; background: var(--signal); transition: width .3s }
-    video { width: 100%; border-radius: 10px; background: #000; margin: 12px 0 }
-    a { color: var(--signal) }
-    .files a { margin-right: 16px }
-    .error { color: #ff9d8a }
-    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 12px 0 }
-    .stat b { display: block; font-size: 26px }
-    .stat span { color: var(--muted); font-size: 13px }
-    .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
-    .shots img { width: 100%; border-radius: 10px }
+    html { background: var(--ink); color-scheme: dark }
+    body { margin: 0; min-height: 100vh; background: var(--ink); color: var(--silver); font-family: var(--body);
+           line-height: 1.6; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility }
+    main { width: min(100%, 60rem); margin: 0 auto; padding: clamp(4rem, 10vw, 7rem) var(--gutter) 6rem }
+    a { color: var(--signal); text-decoration: none } a:hover { text-decoration: underline }
+
+    .kicker { margin: 0 0 .75rem; color: var(--signal); font-size: clamp(1rem, 1.4vw, 1.125rem); font-weight: 600 }
+    h1 { margin: 0; color: var(--silver-bright); font-size: clamp(3.25rem, 9vw, 6rem); font-weight: 700;
+         line-height: 1; letter-spacing: -.045em }
+    .lead { max-width: 40rem; margin: 1.5rem 0 0; color: #a3abae; font-size: clamp(1.125rem, 1.8vw, 1.375rem);
+            line-height: 1.45; text-wrap: balance }
+    h2 { margin: 0 0 1.25rem; color: var(--silver-bright); font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 700;
+         letter-spacing: -.03em }
+
+    .card { margin-top: clamp(2.5rem, 6vw, 4rem); padding: clamp(1.5rem, 3.5vw, 2.75rem); border-radius: 1.75rem;
+            background: var(--graphite) }
+    .drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem;
+            min-height: 11rem; padding: 2rem; border: 1.5px dashed var(--line-strong); border-radius: 1.25rem;
+            background: var(--ink-soft); text-align: center; cursor: pointer; transition: border-color .2s, background .2s }
+    .drop:hover, .drop.over { border-color: var(--signal); background: color-mix(in srgb, var(--signal) 6%, var(--ink-soft)) }
+    .drop b { color: var(--silver-bright); font-size: 1.125rem; font-weight: 600 }
+    .drop span { color: var(--muted); font-size: .9375rem }
+    .drop.chosen b { color: var(--signal) }
+    .drop input { position: absolute; width: 1px; height: 1px; opacity: 0 }
+
+    .section-label { margin: 2rem 0 .875rem; color: var(--silver-bright); font-size: 1rem; font-weight: 600 }
+    .hint { margin: .5rem 0 0; color: var(--muted); font-size: .875rem; line-height: 1.5 }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: .875rem }
+    label.field { display: block }
+    label.field span { display: block; margin-bottom: .375rem; color: var(--muted); font-size: .875rem }
+    input[type=number], select { width: 100%; height: 2.875rem; padding: 0 .875rem; border: 0; border-radius: .875rem;
+            background: var(--graphite-light); color: var(--silver-bright); font: 500 1rem var(--body);
+            box-shadow: inset 0 0 0 1px var(--line); appearance: none }
+    select { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+             linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+             background-position: calc(100% - 1.125rem) 1.25rem, calc(100% - .8125rem) 1.25rem;
+             background-size: .3125rem .3125rem; background-repeat: no-repeat; padding-right: 2.25rem }
+    input:focus-visible, select:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--signal) }
+    input::placeholder { color: var(--muted) }
+
+    .chips { display: flex; flex-wrap: wrap; gap: .625rem }
+    .chip input { position: absolute; opacity: 0; pointer-events: none }
+    .chip span { display: inline-flex; align-items: center; min-height: 2.5rem; padding: 0 1.125rem;
+                 border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--silver);
+                 font-size: .9375rem; font-weight: 600; cursor: pointer; transition: background .15s, color .15s }
+    .chip input:checked + span { background: var(--signal); color: var(--ink); box-shadow: none }
+    .chip input:focus-visible + span { outline: 2px solid var(--signal); outline-offset: 2px }
+
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: 2.25rem }
+    .pill { display: inline-flex; align-items: center; justify-content: center; min-height: 3.25rem; padding: 0 2rem;
+            border: 0; border-radius: 999px; background: var(--signal); color: var(--ink); font: 600 1.0625rem var(--body);
+            cursor: pointer; transition: filter .15s }
+    .pill:hover { filter: brightness(1.08); text-decoration: none }
+    .pill:disabled { opacity: .45; cursor: wait }
+    .pill.quiet { min-height: 2.5rem; padding: 0 1.125rem; background: transparent; color: var(--silver-bright);
+                  box-shadow: inset 0 0 0 1px var(--line-strong); font-size: .9375rem }
+
+    .progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem }
+    .stage { color: var(--silver-bright); font-size: 1.125rem; font-weight: 600 }
+    .percent { color: var(--signal); font-size: clamp(2.25rem, 5vw, 3.25rem); font-weight: 700; letter-spacing: -.03em;
+               font-variant-numeric: tabular-nums }
+    .bar { height: .5rem; margin-top: 1rem; border-radius: 999px; background: var(--graphite-light); overflow: hidden }
+    .bar div { width: 0; height: 100%; border-radius: inherit; background: var(--signal); transition: width .4s ease }
+    .error { color: var(--danger); font-weight: 600 }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 1.75rem 1.5rem; margin: 2rem 0 }
+    .stat b { display: block; color: var(--silver-bright); font-size: clamp(2rem, 4.2vw, 3rem); font-weight: 700;
+              line-height: 1; letter-spacing: -.035em; font-variant-numeric: tabular-nums }
+    .stat span { display: block; margin-top: .5rem; color: var(--muted); font-size: .9375rem }
+    video { display: block; width: 100%; margin-top: 1.5rem; border-radius: 1.25rem; background: #000 }
+    .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin-top: 1rem }
+    .shots img { display: block; width: 100%; border-radius: 1.25rem }
+    .files { display: flex; flex-wrap: wrap; gap: .625rem; margin-top: 1.75rem }
+    footer { margin-top: 3rem; color: var(--muted); font-size: .875rem; text-align: center }
   </style>
 </head>
 <body>
 <main>
-  <h1>Meteor Cut</h1>
-  <p class="lead">Upload a night-sky video from a camera on a tripod. Meteor Cut finds every meteor with Sky Tracker,
-    makes a highlight video with only them, sorted by speed, and gives you pictures and tables. Everything runs on
-    this computer.</p>
+  <p class="kicker">Meteor Cut</p>
+  <h1>Every meteor of the night.</h1>
+  <p class="lead">Drop in a video from a camera on a tripod. Meteor Cut finds every meteor with Sky Tracker, measures
+    its speed, and cuts a highlight video with only them, plus pictures and tables. It all runs on this computer.</p>
 
-  <form id="form">
-    <label for="video">Video</label>
-    <input id="video" name="video" type="file" accept="video/*" required>
+  <form id="form" class="card" novalidate>
+    <label class="drop" id="drop">
+      <input id="video" name="video" type="file" accept="video/*" required>
+      <b id="drop-title">Choose a video, or drop it here</b>
+      <span id="drop-sub">MP4, MOV, MKV, AVI or WebM, up to the length of a whole night</span>
+    </label>
+
+    <p class="section-label">Camera <span class="hint" style="font-weight:400">· optional, for speeds in °/s and km/s</span></p>
     <div class="grid">
-      <div><label for="focal">Focal length (mm)</label>
-        <input id="focal" name="focal" type="number" step="0.1" min="1" placeholder="14"></div>
-      <div><label for="sensor">Sensor</label>
+      <label class="field"><span>Focal length (mm)</span>
+        <input id="focal" name="focal" type="number" step="0.1" min="1" placeholder="14"></label>
+      <label class="field"><span>Sensor</span>
         <select id="sensor" name="sensor">
-          {% for name, size in sensors.items() %}<option value="{{ name }}">{{ name }} ({{ '%g' % size[0] }} x {{ '%g' % size[1] }} mm)</option>{% endfor %}
-        </select></div>
-      <div><label for="fov">or field of view (°)</label>
-        <input id="fov" name="fov" type="number" step="0.1" min="1" max="178" placeholder="horizontal"></div>
-      <div><label for="tilt">Camera tilt (°)</label>
-        <input id="tilt" name="tilt" type="number" step="1" min="-10" max="90" placeholder="above horizon">
-        <div class="hint">0 level, 90 straight up. Needed for km/s.</div></div>
-      <div><label for="altitude">Meteor height (km)</label>
-        <input id="altitude" name="altitude" type="number" step="1" min="40" max="200" value="95"></div>
+          {% for name, size in sensors.items() %}<option value="{{ name }}" title="{{ '%g' % size[0] }} × {{ '%g' % size[1] }} mm">{{ name }}</option>{% endfor %}
+        </select></label>
+      <label class="field"><span>or field of view (°)</span>
+        <input id="fov" name="fov" type="number" step="0.1" min="1" max="178" placeholder="horizontal"></label>
+      <label class="field"><span>Tilt above horizon (°)</span>
+        <input id="tilt" name="tilt" type="number" step="1" min="-10" max="90" placeholder="for km/s"></label>
+      <label class="field"><span>Meteor height (km)</span>
+        <input id="altitude" name="altitude" type="number" step="1" min="40" max="200" value="95"></label>
     </div>
-    <div class="checks"><span>In the video:</span>
-      <label><input type="checkbox" name="show" value="meteors" checked> meteors</label>
-      <label><input type="checkbox" name="show" value="satellites"> satellites</label>
-      <label><input type="checkbox" name="show" value="planes"> planes</label>
-      <label><input type="checkbox" name="trails" value="on" checked> keep past trails</label>
+    <p class="hint">Without the lens, speeds are on-screen pixels per second. The km/s figure is the part of the speed
+      across your view, so the real speed is at least that.</p>
+
+    <p class="section-label">In the video</p>
+    <div class="chips">
+      <label class="chip"><input type="checkbox" name="show" value="meteors" checked><span>Meteors</span></label>
+      <label class="chip"><input type="checkbox" name="show" value="satellites"><span>Satellites</span></label>
+      <label class="chip"><input type="checkbox" name="show" value="planes"><span>Planes</span></label>
+      <label class="chip"><input type="checkbox" name="trails" value="on" checked><span>Keep past trails</span></label>
     </div>
-    <p class="hint">Without a lens, speeds are in pixels per second. With the lens, in degrees per second; with the
-      tilt too, an estimate in km/s (the part of the speed across your view, so the real speed is at least that).</p>
-    <button id="go" type="submit">Find meteors</button>
+
+    <div class="actions">
+      <button id="go" class="pill" type="submit">Find meteors</button>
+      <span class="hint" id="note"></span>
+    </div>
   </form>
 
-  <div id="job" class="card" hidden>
-    <div id="stage">Uploading…</div>
+  <section id="job" class="card" hidden aria-live="polite">
+    <div class="progress-head">
+      <span class="stage" id="stage">Uploading</span>
+      <span class="percent" id="percent">0%</span>
+    </div>
     <div class="bar"><div id="fill"></div></div>
     <div id="result"></div>
-  </div>
+  </section>
+
+  <footer>Tracked with <a href="https://sky-tracker.deneb-systems.com" target="_blank" rel="noopener">Sky Tracker</a></footer>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
-  const form = $('form'), go = $('go'), box = $('job'), stage = $('stage'), fill = $('fill'), result = $('result');
+  const form = $('form'), go = $('go'), box = $('job'), stage = $('stage'), percent = $('percent'), fill = $('fill');
+  const result = $('result'), drop = $('drop'), input = $('video');
   const esc = (value) => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const size = (bytes) => bytes > 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
 
-  form.addEventListener('submit', async (event) => {
+  function chosen() {
+    const file = input.files[0];
+    drop.classList.toggle('chosen', !!file);
+    $('drop-title').textContent = file ? file.name : 'Choose a video, or drop it here';
+    $('drop-sub').textContent = file ? `${size(file.size)} · click to choose another` : 'MP4, MOV, MKV, AVI or WebM, up to the length of a whole night';
+  }
+  input.addEventListener('change', chosen);
+  for (const type of ['dragenter', 'dragover']) drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add('over'); });
+  for (const type of ['dragleave', 'drop']) drop.addEventListener(type, () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; chosen(); } });
+
+  function show(stageText, fraction) {
+    stage.textContent = stageText;
+    percent.textContent = `${Math.round(fraction * 100)}%`;
+    fill.style.width = `${fraction * 100}%`;
+  }
+
+  form.addEventListener('submit', (event) => {
     event.preventDefault();
-    go.disabled = true; box.hidden = false; result.innerHTML = ''; stage.textContent = 'Uploading…'; fill.style.width = '0';
-    const response = await fetch('/jobs', { method: 'POST', body: new FormData(form) }).catch(() => null);
-    const body = response ? await response.json().catch(() => ({})) : {};
-    if (!response || !response.ok) { fail(body.error || 'The upload failed.'); return; }
-    poll(body.id);
+    if (!input.files.length) { $('note').innerHTML = '<span class="error">Choose a video first.</span>'; return; }
+    $('note').textContent = '';
+    go.disabled = true; box.hidden = false; result.innerHTML = '';
+    show('Uploading', 0);
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // XMLHttpRequest, unlike fetch, reports upload progress: a whole night of video takes a while to send.
+    const request = new XMLHttpRequest();
+    request.open('POST', '/jobs');
+    request.responseType = 'json';
+    request.upload.onprogress = (e) => { if (e.lengthComputable) show('Uploading', e.loaded / e.total); };
+    request.onload = () => {
+      if (request.status !== 202) { fail(request.response?.error || 'The upload failed.'); return; }
+      poll(request.response.id);
+    };
+    request.onerror = () => fail('The upload failed. Is meteor-cut serve still running?');
+    request.send(new FormData(form));
   });
 
   function fail(message) {
     stage.innerHTML = `<span class="error">${esc(message)}</span>`;
+    percent.textContent = '';
     go.disabled = false;
   }
 
   async function poll(id) {
     const s = await fetch(`/jobs/${id}`).then((r) => r.json()).catch(() => null);
     if (!s) { setTimeout(() => poll(id), 2000); return; }
-    stage.textContent = `${s.stage} ${Math.round(s.fraction * 100)}%`;
-    fill.style.width = `${s.fraction * 100}%`;
-    if (!s.done) { setTimeout(() => poll(id), 700); return; }
+    show(s.stage, s.fraction);
+    if (!s.done) { setTimeout(() => poll(id), 800); return; }
     go.disabled = false;
     if (s.error) { fail(s.error); return; }
-    show(id, s);
+    render(id, s);
   }
 
-  function show(id, s) {
+  function render(id, s) {
     const m = s.summary, a = m.angular_speed_deg_s, k = m.sky_speed_km_s;
     const stat = (value, label) => `<div class="stat"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
     const file = (name) => `/jobs/${id}/${name}`;
-    stage.textContent = `${m.meteors} meteors in ${s.name}`;
+    stage.textContent = `Done · ${s.name}`;
+    percent.textContent = '100%';
     result.innerHTML = `
       <div class="stats">
         ${stat(m.meteors, 'meteors')}
         ${m.meteors_per_hour ? stat(m.meteors_per_hour, 'per hour') : ''}
-        ${a ? stat(`${a.max}°/s`, `fastest (${m.fastest_meteor})`) + stat(`${a.mean}°/s`, 'average') : ''}
-        ${k ? stat(`≥${k.mean} km/s`, 'average across the view') : ''}
-        ${m.satellites ? stat(m.satellites, 'satellites') : ''}
-        ${m.planes ? stat(m.planes, 'planes') : ''}
+        ${a ? stat(`${a.max}°/s`, `fastest, ${m.fastest_meteor}`) : ''}
+        ${k ? stat(`≥${k.mean}`, 'km/s on average') : ''}
+        ${stat(m.satellites, 'satellites')}
+        ${stat(m.planes, 'planes')}
       </div>
-      ${s.files.includes('report.html') ? `<p><a href="${file('report.html')}" target="_blank" rel="noopener">Open the full report</a> (pictures, charts and every table on one page)</p>` : ''}
-      ${s.files.includes('trajectories.png') ? `<div class="shots">
-        <a href="${file('trajectories.png')}"><img src="${file('trajectories.png')}" alt="Every trajectory"></a>
-        <a href="${file('heatmap.png')}"><img src="${file('heatmap.png')}" alt="Heat map of the meteors"></a></div>` : ''}
-      ${s.files.includes('satellites.png') ? `<div class="shots"><a href="${file('satellites.png')}"><img src="${file('satellites.png')}" alt="Satellites and planes"></a></div>` : ''}
-      ${s.files.includes('meteors.mp4') ? `<video controls src="${file('meteors.mp4')}"></video>` : '<p>Nothing to show, so no video.</p>'}
-      <p class="files">${s.files.map((f) => `<a href="${file(f)}?download=1">${esc(f)}</a>`).join('')}</p>`;
+      <div class="actions" style="margin-top:0">
+        ${s.files.includes('report.html') ? `<a class="pill" href="${file('report.html')}" target="_blank" rel="noopener">Open the report</a>` : ''}
+      </div>
+      ${s.files.includes('meteors.mp4') ? `<video controls preload="metadata" src="${file('meteors.mp4')}"></video>` : '<p class="hint">Nothing to show, so no video.</p>'}
+      <div class="shots">
+        ${['trajectories.png', 'satellites.png', 'heatmap.png'].filter((f) => s.files.includes(f))
+          .map((f) => `<a href="${file(f)}" target="_blank" rel="noopener"><img src="${file(f)}" alt="${esc(f)}"></a>`).join('')}
+      </div>
+      <div class="files">${s.files.map((f) => `<a class="pill quiet" href="${file(f)}?download=1">${esc(f)}</a>`).join('')}</div>`;
   }
 </script>
 </body>
