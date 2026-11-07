@@ -127,7 +127,7 @@ def _process_parser(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=5,
         metavar="N",
-        help="vertical 9:16 clips of the N best meteors (default 5, 0 for none)",
+        help="vertical 9:16 clips of the N fastest, N longest and N brightest meteors (default 5, 0 for none)",
     )
     video.add_argument("--no-composite", action="store_true", help="skip the picture of every meteor on one sky")
 
@@ -150,6 +150,9 @@ def _serve_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1, this computer)")
     parser.add_argument("--port", type=int, default=8765, help="port (default 8765)")
     parser.add_argument("--max-upload-gb", type=float, default=20.0, help="largest upload accepted (default 20)")
+    parser.add_argument(
+        "--results", type=Path, metavar="DIR", help="where each video's results are kept (default: ~/Meteor Cut)"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -359,7 +362,7 @@ def _star_index(_: argparse.Namespace) -> int:
 def _serve(args: argparse.Namespace) -> int:
     from .web import serve
 
-    serve(args.host, args.port, max_upload_bytes=int(args.max_upload_gb * 1024**3))
+    serve(args.host, args.port, max_upload_bytes=int(args.max_upload_gb * 1024**3), results_dir=args.results)
     return EXIT_OK
 
 

@@ -17,13 +17,17 @@ def test_process_writes_every_output(night_video, fake_tracker, tmp_path):
         tracker_factory=fake_tracker,
         progress=lambda stage, fraction: stages.append(stage),
     )
-    names = {p.name for p in result.files}
+    names = {p.name for p in result.files if p.parent.parent.name != "shorts"}
+    assert {p.relative_to(tmp_path / "out").as_posix() for p in result.files if p.parent.parent.name == "shorts"} == {
+        "shorts/fastest/01-meteor-1.mp4",
+        "shorts/longest/01-meteor-1.mp4",
+        "shorts/brightest/01-meteor-1.mp4",
+    }
     assert names == {
         "report.html",
         "meteors.mp4",
         "composite.png",
         "top.png",
-        "01-meteor-1.mp4",
         "trajectories.png",
         "satellites.png",
         "heatmap.png",

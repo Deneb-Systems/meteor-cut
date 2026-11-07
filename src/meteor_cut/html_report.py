@@ -10,7 +10,7 @@ import base64
 import html
 import math
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -154,17 +154,38 @@ def _top_table(meteors: Sequence[SkyObject], by: str, timeline: Timeline) -> str
     chosen = top(meteors, by)
     if not chosen:
         return '<p class="lead">Not measured.</p>'
-    value = (
-        length_text
-        if by == "length"
-        else (lambda m: magnitude_text(m) or f"{m.brightness.peak:.3g}" if m.brightness else "")
+
+    def brightness(m: SkyObject) -> str:
+        return (magnitude_text(m) or f"{m.brightness.peak:.3g}") if m.brightness else ""
+
+    choices: dict[str, tuple[str, Callable[[SkyObject], str]]] = {
+        "speed": ("Speed", lambda m: speed_text(m)[0]),
+        "length": ("Length", length_text),
+        "brightness": ("Brightness", brightness),
+    }
+    head, value = choices[by]
+    rows = [[f"{i}. {m.label}", value(m), timeline.label(m.start_s), m.shower_code] for i, m in enumerate(chosen, 1)]
+    return _table(f"top-{by}", ["Meteor", head, "Time", "Shower"], rows)
+
+
+def _shorts_html(shorts: Mapping[str, Sequence[str]]) -> str:
+    """The vertical clips, a row per top list."""
+    from .shorts import GROUPS
+
+    sections = "".join(
+        f'<h3>{html.escape(GROUPS[group][0])}</h3><div class="shorts">'
+        + "".join(f'<video controls preload="metadata" playsinline src="{html.escape(p)}"></video>' for p in paths)
+        + "</div>"
+        for group, paths in shorts.items()
+        if paths and group in GROUPS
     )
-    rows = [
-        [f"{i}. {m.label}", value(m), timeline.label(m.start_s), speed_text(m)[0], m.shower_code]
-        for i, m in enumerate(chosen, 1)
-    ]
-    head = "Length" if by == "length" else "Brightness"
-    return _table(f"top-{by}", ["Meteor", head, "Time", "Speed", "Shower"], rows)
+    if not sections:
+        return ""
+    return (
+        '<h2>Vertical clips</h2><p class="lead">The top meteors of each list in 9:16, for Shorts, Reels and TikTok, '
+        "in shorts/fastest, shorts/longest and shorts/brightest. Each plays once at normal speed, then at a quarter "
+        f"speed.</p>{sections}"
+    )
 
 
 def _other_rows(others: Sequence[SkyObject], timeline: Timeline) -> list[list[Any]]:
@@ -191,7 +212,7 @@ def write_html_report(
     video_name: str | None,
     *,
     timeline: Timeline | None = None,
-    shorts: Sequence[str] = (),
+    shorts: Mapping[str, Sequence[str]] | None = None,
 ) -> None:
     timeline = timeline or Timeline(None, scan.duration_s >= 3600)
     s = summary
@@ -237,9 +258,6 @@ def write_html_report(
         if file in images
     )
     video = f'<video controls preload="metadata" src="{html.escape(video_name)}"></video>' if video_name else ""
-    short_html = "".join(
-        f'<video controls preload="metadata" playsinline src="{html.escape(name)}"></video>' for name in shorts
-    )
     sky_line = _describe_sky(s)
     rejected = "".join(
         f"<li><b>{n}</b> {html.escape(r.reason.description)} <code>{html.escape(r.reason.value)}</code></li>"
@@ -258,12 +276,10 @@ def write_html_report(
         chart=_per_hour_chart(found.meteors, scan.duration_s),
         video=video,
         figures=figures,
+        top_speed=_top_table(found.meteors, "speed", timeline),
         top_length=_top_table(found.meteors, "length", timeline),
         top_brightness=_top_table(found.meteors, "brightness", timeline),
-        shorts=f'<h2>Vertical clips</h2><p class="lead">The best meteors in 9:16, for Shorts, Reels and TikTok. '
-        f'Each plays once at normal speed, then at a quarter speed.</p><div class="shorts">{short_html}</div>'
-        if short_html
-        else "",
+        shorts=_shorts_html(shorts or {}),
         sky_line=f'<p class="lead">{html.escape(sky_line)}</p>' if sky_line else "",
         meteors=_table(
             "meteors",
@@ -354,8 +370,8 @@ TEMPLATE = """<!doctype html>
   code {{ margin-left:auto; color:var(--muted); font-size:.8125rem }}
   footer {{ margin-top:4rem; color:var(--muted); font-size:.875rem }}
   h3 {{ margin:0 0 .75rem; color:var(--signal); font-size:1.125rem; font-weight:600 }}
-  .two {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(20rem,1fr)); gap:1.5rem }}
-  .shorts {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(12rem,1fr)); gap:1rem }}
+  .two {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(18rem,1fr)); gap:1.5rem }}
+  .shorts {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(10rem,1fr)); gap:1rem; margin-bottom:2rem }}
   .shorts video {{ aspect-ratio:9/16; border-radius:1rem }}
 </style></head><body><main>
 <header class="brand"><a href="https://deneb-systems.com" aria-label="Deneb Systems">{logo}</a>
@@ -371,7 +387,8 @@ TEMPLATE = """<!doctype html>
 <h2>Pictures</h2>
 {figures}
 <h2>Top meteors</h2>
-<div class="two"><div><h3>Longest trails</h3><div class="scroll">{top_length}</div></div>
+<div class="two"><div><h3>Fastest</h3><div class="scroll">{top_speed}</div></div>
+<div><h3>Longest trails</h3><div class="scroll">{top_length}</div></div>
 <div><h3>Brightest</h3><div class="scroll">{top_brightness}</div></div></div>
 {shorts}
 <h2>Meteors</h2>

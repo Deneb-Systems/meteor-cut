@@ -114,7 +114,7 @@ class Result:
     video: Path | None  # None when there was nothing to show or no video was asked for
     files: list[Path] = field(default_factory=list)
     summary: dict[str, Any] = field(default_factory=dict)
-    shorts: list[Path] = field(default_factory=list)
+    shorts: dict[str, list[Path]] = field(default_factory=dict)  # top list ("fastest", ...) -> its clips
 
 
 def process(
@@ -137,9 +137,9 @@ def process(
 
     Writes report.html (everything on one page), meteors.mp4 (when anything is shown), trajectories.png,
     composite.png, top.png and heatmap.png (when there are meteors), satellites.png (when there are satellites or
-    planes), shorts/ (vertical clips of the best meteors), meteors.csv, satellites_planes.csv, meteor_points.csv,
-    rejected.csv and summary.json. This is scan() followed by analyse(); call those two yourself to try other rules or
-    styles without scanning the video again.
+    planes), shorts/ (vertical clips of the fastest, longest and brightest meteors), meteors.csv,
+    satellites_planes.csv, meteor_points.csv, rejected.csv and summary.json. This is scan() followed by analyse();
+    call those two yourself to try other rules or styles without scanning the video again.
     """
     lens, style, observation = lens or Lens(), style or Style(), observation or Observation()
     report = progress or (lambda stage, fraction: None)
@@ -284,7 +284,7 @@ def analyse(
         if clips:
             video_path = out / "meteors.mp4"
             files.append(video_path)
-    short_paths: list[Path] = []
+    short_paths: dict[str, list[Path]] = {}
     if shorts > 0 and found.meteors:
         short_paths = write_shorts(
             scanned.path,
@@ -296,7 +296,7 @@ def analyse(
             timeline=timeline,
             progress=lambda f: report("Writing vertical clips", f),
         )
-        files.extend(short_paths)
+        files.extend(path for paths in short_paths.values() for path in paths)
 
     tables: dict[str, Callable[[Path], None]] = {
         "meteors.csv": lambda p: write_meteors(p, found.meteors, timeline),
@@ -319,7 +319,7 @@ def analyse(
     data.update(_night_summary(scanned, found.meteors, sky, sky_radiant, radiant_shower, timeline, start_from_file))
     if data["sky"] is not None:
         data["sky"]["scene"] = sky_scene
-    data["shorts"] = [p.name for p in short_paths]
+    data["shorts"] = {group: [p.name for p in paths] for group, paths in short_paths.items()}
     write_summary(out / "summary.json", data)
     files.append(out / "summary.json")
     write_html_report(
@@ -330,7 +330,7 @@ def analyse(
         images,
         video_path.name if video_path else None,
         timeline=timeline,
-        shorts=[f"shorts/{p.name}" for p in short_paths],
+        shorts={group: [f"shorts/{group}/{p.name}" for p in paths] for group, paths in short_paths.items()},
     )
     files.append(out / "report.html")
     report("Done", 1.0)
@@ -392,6 +392,7 @@ def _night_summary(
         "showers": dict(sorted(counts.items(), key=lambda kv: -kv[1])) or None,
         "shower_names": {code: (s.name if (s := by_code(code)) else "sporadic") for code in counts} or None,
         "fireballs": [m.label for m in meteors if m.brightness and m.brightness.fireball],
+        "top_fastest": [m.label for m in top(meteors, "speed")],
         "top_longest": [m.label for m in top(meteors, "length")],
         "top_brightest": [m.label for m in top(meteors, "brightness")],
         "sky": None,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import cv2
 import numpy as np
@@ -175,28 +175,29 @@ def satellites_and_planes(scan: Scan, others: Sequence[SkyObject], label_limit: 
 
 
 def top_five(meteors: Sequence[SkyObject], timeline: Timeline, width: int = 1920, height: int = 1080) -> np.ndarray:
-    """A card with the five longest trails and the five brightest meteors."""
+    """A card with the five fastest meteors, the five longest trails and the five brightest."""
     from .enrich import top
 
     image = Image.new("RGB", (width, height), CAPTION_BG)
     draw = ImageDraw.Draw(image)
     unit = width / 1920
     draw.text((96 * unit, 80 * unit), "Top meteors of the night", font=font(round(56 * unit), bold=True), fill=TEXT)
-    columns = [
+    columns: list[tuple[str, list[SkyObject], Callable[[SkyObject], str]]] = [
+        ("Fastest", top(meteors, "speed"), lambda m: speed_text(m)[0]),
         ("Longest trails", top(meteors, "length"), length_text),
         ("Brightest", top(meteors, "brightness"), lambda m: magnitude_text(m) or "brightness measured"),
     ]
     for c, (title, chosen, value) in enumerate(columns):
-        x = (96 + c * 880) * unit
+        x = (96 + c * 600) * unit
         draw.text((x, 220 * unit), title, font=font(round(40 * unit), bold=True), fill=KIND_RGB[Kind.METEOR])
         if not chosen:
             draw.text((x, 300 * unit), "not measured", font=font(round(30 * unit)), fill=MUTED)
         for i, m in enumerate(chosen):
             y = (300 + i * 120) * unit
-            draw.text((x, y), f"{i + 1}", font=font(round(48 * unit), bold=True), fill=TEXT)
-            draw.text((x + 80 * unit, y), f"{m.label}  {value(m)}", font=font(round(38 * unit), bold=True), fill=TEXT)
-            details = [timeline.label(m.start_s), speed_text(m)[0]]
+            draw.text((x, y), f"{i + 1}", font=font(round(44 * unit), bold=True), fill=TEXT)
+            draw.text((x + 64 * unit, y), f"{m.label}  {value(m)}", font=font(round(36 * unit), bold=True), fill=TEXT)
+            details = [timeline.label(m.start_s)] + ([speed_text(m)[0]] if c else [length_text(m)])
             if m.shower_code and m.shower_code != "SPO" and m.shower:
                 details.append(m.shower.shower.name)
-            draw.text((x + 80 * unit, y + 52 * unit), "  ·  ".join(details), font=font(round(28 * unit)), fill=MUTED)
+            draw.text((x + 64 * unit, y + 50 * unit), "  ·  ".join(details), font=font(round(26 * unit)), fill=MUTED)
     return _to_bgr(image)

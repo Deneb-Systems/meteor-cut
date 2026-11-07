@@ -37,14 +37,30 @@ class ShortStyle:
     crf: int = 20
 
 
-def best(meteors: Sequence[SkyObject], count: int) -> list[SkyObject]:
-    """The meteors most worth a clip: brightest first when brightness is known, then longest."""
+# Each top list: its folder, its heading, and the rank it orders meteors by (0 = not ranked).
+GROUPS: dict[str, tuple[str, str, Callable[[SkyObject], int]]] = {
+    "fastest": ("Fastest", "fastest", lambda m: m.rank),
+    "longest": ("Longest trails", "longest trail", lambda m: m.length_rank),
+    "brightest": ("Brightest", "brightest", lambda m: m.brightness_rank),
+}
 
-    def key(m: SkyObject) -> tuple[int, float]:
-        rank = m.brightness_rank or (len(meteors) + 1)
-        return rank, -m.length_value
 
-    return sorted(meteors, key=key)[:count]
+def top_lists(meteors: Sequence[SkyObject], count: int) -> dict[str, list[SkyObject]]:
+    """The `count` fastest, longest and brightest meteors; a list is left out when nothing was ranked for it."""
+    lists = {}
+    for group, (_, _, rank) in GROUPS.items():
+        ranked = sorted((m for m in meteors if rank(m)), key=rank)[:count]
+        if ranked:
+            lists[group] = ranked
+    return lists
+
+
+def place_text(place: int, word: str) -> str:
+    """'fastest', '2nd fastest', '3rd longest trail'."""
+    if place == 1:
+        return word
+    suffix = "th" if 10 <= place % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(place % 10, "th")
+    return f"{place}{suffix} {word}"
 
 
 def _zoom_box(obj: SkyObject, width: int, height: int, style: ShortStyle) -> tuple[int, int, int]:
@@ -64,10 +80,13 @@ def _title(obj: SkyObject, timeline: Timeline, style: ShortStyle, subtitle_extra
     draw = ImageDraw.Draw(image)
     name = f"{obj.shower.shower.name[:-1]} meteor" if obj.shower else "Meteor"
     draw.text((56, 30), f"{name} {obj.label}", font=font(64, bold=True), fill=WHITE)
-    draw.text((style.width - 56, 124), "Meteor Cut · by Deneb Systems", font=font(26), fill=MUTED, anchor="ra")
     when = timeline.at(obj.start_s)
     stamp = when.strftime("%d %b %Y · %H:%M:%S") if when else f"at {timeline.label(obj.start_s)} in the video"
-    draw.text((58, 118), stamp + subtitle_extra, font=font(34), fill=MUTED)
+    draw.text((58, 118), stamp, font=font(34), fill=MUTED)
+    if subtitle_extra:
+        draw.text(
+            (58 + draw.textlength(stamp, font=font(34)), 118), subtitle_extra, font=font(34, bold=True), fill=CYAN
+        )
     return _to_bgr(image)
 
 
@@ -91,6 +110,9 @@ class _Layout:
         self.title = _title(obj, timeline, style, extra)
         self.facts = _facts(obj)
         self.scale = style.width / width
+        mark = Image.new("RGB", (460, 44), (0, 0, 0))
+        ImageDraw.Draw(mark).text((452, 8), "Meteor Cut · by Deneb Systems", font=font(26), fill=MUTED, anchor="ra")
+        self.watermark = _to_bgr(mark)
 
     def frame(self, image: np.ndarray, slow: bool) -> np.ndarray:
         s = self.style
@@ -107,6 +129,9 @@ class _Layout:
         cv2.rectangle(full, (int(x * k), int(y * k)), (int((x + side) * k), int((y + side) * k)), _bgr(CYAN), 2)
         bottom = min(s.height, self.full_y + self.full_h)
         canvas[self.full_y : bottom] = full[: bottom - self.full_y]
+        mh, mw = self.watermark.shape[:2]
+        corner = canvas[bottom - mh - 8 : bottom - 8, s.width - mw - 16 : s.width - 16]
+        np.maximum(corner, self.watermark, out=corner)  # light text over the dark sky
         caption = Image.new("RGB", (s.width, 76), BG)
         draw = ImageDraw.Draw(caption)
         draw.text((56, 14), self.facts, font=font(34, bold=True), fill=CYAN)
@@ -174,19 +199,23 @@ def write_shorts(
     timeline: Timeline,
     style: ShortStyle | None = None,
     progress: Callable[[float], None] | None = None,
-) -> list[Path]:
-    """Clips of the `count` best meteors, named by rank: shorts/01-meteor-12.mp4 is the best one."""
-    chosen = best(meteors, count)
-    if not chosen:
-        return []
-    out_dir.mkdir(parents=True, exist_ok=True)
-    written = []
+) -> dict[str, list[Path]]:
+    """Clips of the `count` fastest, longest and brightest meteors, a folder per list: shorts/fastest/01-meteor-12.mp4
+    is the fastest. A meteor on several lists gets a clip in each, titled with its place on that list."""
+    lists = top_lists(meteors, count)
+    jobs = [(group, place, obj) for group, chosen in lists.items() for place, obj in enumerate(chosen, start=1)]
+    written: dict[str, list[Path]] = {group: [] for group in lists}
+    if not jobs:
+        return written
     with FrameReader(video) as reader:
-        for place, obj in enumerate(sorted(chosen, key=lambda m: m.start_frame)):
-            order = chosen.index(obj) + 1
-            path = out_dir / f"{order:02d}-meteor-{obj.number}.mp4"
-            write_short(reader, obj, path, width=width, height=height, timeline=timeline, style=style)
-            written.append(path)
+        # In order of appearance, so the reader mostly moves forward through the video.
+        for done, (group, place, obj) in enumerate(sorted(jobs, key=lambda j: j[2].start_frame), start=1):
+            folder = out_dir / group
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"{place:02d}-meteor-{obj.number}.mp4"
+            extra = f"  ·  {place_text(place, GROUPS[group][1])}"
+            write_short(reader, obj, path, width=width, height=height, timeline=timeline, style=style, extra=extra)
+            written[group].append(path)
             if progress:
-                progress((place + 1) / len(chosen))
-    return sorted(written)
+                progress(done / len(jobs))
+    return {group: sorted(paths) for group, paths in written.items()}

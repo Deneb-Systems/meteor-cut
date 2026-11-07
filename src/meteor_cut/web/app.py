@@ -1,7 +1,8 @@
 """A small web page on this computer: upload a video, enter the lens if known, get the results.
 
-Videos are processed here and never leave the machine. The server binds to 127.0.0.1 unless told otherwise, runs one
-job at a time, and deletes its working folder when it stops.
+Videos are processed here and never leave the machine. The server binds to 127.0.0.1 unless told otherwise and runs one
+job at a time. Results go to a folder of their own under ~/Meteor Cut (or --results), named after the video and the
+time, and stay there after the server stops; the uploaded copy of the video is deleted once it has been processed.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +66,8 @@ class Job:
     def status(self) -> dict[str, Any]:
         files = [f for f in OUTPUTS if (self.folder / f).exists()] if self.done else []
         if self.done and (self.folder / "shorts").is_dir():
-            files += sorted(f"shorts/{p.name}" for p in (self.folder / "shorts").glob("*.mp4"))
+            clips = (self.folder / "shorts").glob("*/*.mp4")
+            files += sorted(p.relative_to(self.folder).as_posix() for p in clips)
         return {
             "stage": self.stage,
             "fraction": self.fraction,
@@ -73,6 +76,7 @@ class Job:
             "summary": self.summary,
             "files": files,
             "name": self.name,
+            "folder": str(self.folder),
         }
 
 
@@ -86,17 +90,35 @@ def _number(form: MultiDict[str, str], key: str) -> float | None:
         raise MeteorCutError(f"{key} must be a number") from None
 
 
+def default_results_dir() -> Path:
+    return Path.home() / "Meteor Cut"
+
+
+def _results_folder(root: Path, upload_name: str, now: datetime) -> Path:
+    """A new folder for one video's results: "night 2026-08-13 22.41", with a number added if taken."""
+    stem = secure_filename(Path(upload_name).stem) or "video"
+    base = f"{stem} {now:%Y-%m-%d %H.%M}"
+    folder, n = root / base, 2
+    while folder.exists():
+        folder, n = root / f"{base} ({n})", n + 1
+    return folder
+
+
 def create_app(
     work_dir: Path | None = None,
     *,
+    results_dir: Path | None = None,
     tracker_factory: TrackerFactory = sky_tracker_factory,
     max_upload_bytes: int = 20 * 1024**3,
 ) -> Flask:
+    """The upload page. Uploads wait in `work_dir` (a temporary folder by default, removed when the server stops);
+    results go to `results_dir`, by default `work_dir` when one is given, else ~/Meteor Cut, and are kept."""
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = max_upload_bytes
     root = work_dir or Path(tempfile.mkdtemp(prefix="meteor-cut-"))
     if work_dir is None:
         atexit.register(shutil.rmtree, root, ignore_errors=True)
+    results = results_dir or work_dir or default_results_dir()
     jobs: dict[str, Job] = {}
     lock = threading.Lock()
     worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="meteor-cut")  # one video at a time
@@ -115,7 +137,7 @@ def create_app(
             log.exception("job %s failed", job.id)
             job.error = "Something went wrong while processing this video; the server log has the details."
         finally:
-            video.unlink(missing_ok=True)
+            shutil.rmtree(video.parent, ignore_errors=True)  # the uploaded copy, not the results
             job.done = True
 
     def get_job(job_id: str) -> Job:
@@ -144,7 +166,6 @@ def create_app(
                 hfov_deg=_number(request.form, "fov"),
                 tilt_deg=_number(request.form, "tilt"),
                 roll_deg=_number(request.form, "roll") or 0.0,
-                altitude_km=_number(request.form, "altitude") or 95.0,
             )
             lens.camera(1920, 1080)  # check the combination before accepting the upload
             style = Style(
@@ -167,17 +188,20 @@ def create_app(
             )
         except MeteorCutError as error:
             return jsonify(error=str(error)), 400
-        job = Job(uuid.uuid4().hex, root / uuid.uuid4().hex, Path(upload.filename).name)
-        job.folder.mkdir(parents=True)
+        with lock:
+            folder = _results_folder(results, upload.filename, datetime.now())
+            folder.mkdir(parents=True)
+        job = Job(uuid.uuid4().hex, folder, Path(upload.filename).name)
+        # The upload waits in a folder of its own, outside the results, and keeps the uploader's file name (made
+        # safe) so the report is titled with it.
+        incoming = root / "uploads" / job.id
+        incoming.mkdir(parents=True)
         if wcs_upload and wcs_upload.filename:
-            wcs_path = job.folder / "upload-wcs.fits"
+            wcs_path = incoming / "wcs.fits"
             wcs_upload.save(wcs_path)
             observation = Observation(start=observation.start, site=observation.site, wcs=wcs_path)
         options["observation"] = observation
-        # Keep the uploader's file name (made safe) so the report is titled with it, in a folder of its own so it can
-        # never collide with an output such as meteors.mp4.
-        (job.folder / "upload").mkdir()
-        video = job.folder / "upload" / (secure_filename(upload.filename) or f"video{suffix}")
+        video = incoming / (secure_filename(upload.filename) or f"video{suffix}")
         upload.save(video)
         with lock:
             jobs[job.id] = job
@@ -191,7 +215,7 @@ def create_app(
     @app.get("/jobs/<job_id>/<path:name>")
     def file(job_id: str, name: str) -> Any:
         job = get_job(job_id)
-        if name not in OUTPUTS and not re.fullmatch(r"shorts/[\w.-]+\.mp4", name):
+        if name not in OUTPUTS and not re.fullmatch(r"shorts/(fastest|longest|brightest)/[\w.-]+\.mp4", name):
             abort(404)
         return send_from_directory(job.folder, name, as_attachment=request.args.get("download") == "1")
 
@@ -228,9 +252,16 @@ class _QuietPolling(logging.Filter):
         return not self._PROGRESS_CHECK.search(record.getMessage())
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765, *, max_upload_bytes: int = 20 * 1024**3) -> None:
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    *,
+    max_upload_bytes: int = 20 * 1024**3,
+    results_dir: Path | None = None,
+) -> None:
     logging.getLogger("werkzeug").addFilter(_QuietPolling())
     if not _is_loopback(host):
         log.warning("listening on %s: anyone who can reach this address can upload videos and read the results", host)
-    print(f"Meteor Cut: open http://{host}:{port} in your browser (Ctrl+C to stop)")
-    create_app(max_upload_bytes=max_upload_bytes).run(host=host, port=port, threaded=True)
+    results = results_dir or default_results_dir()
+    print(f"Meteor Cut: open http://{host}:{port} in your browser (Ctrl+C to stop). Results go to {results}")
+    create_app(results_dir=results, max_upload_bytes=max_upload_bytes).run(host=host, port=port, threaded=True)

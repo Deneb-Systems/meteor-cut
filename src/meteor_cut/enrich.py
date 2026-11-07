@@ -63,8 +63,8 @@ def _magnitude(obj: SkyObject) -> float:
 
 
 def top(meteors: Sequence[SkyObject], by: str, count: int = 5) -> list[SkyObject]:
-    """The top `count` meteors by "length" or "brightness" rank."""
-    attribute = {"length": "length_rank", "brightness": "brightness_rank"}[by]
+    """The top `count` meteors by "speed", "length" or "brightness" rank."""
+    attribute = {"speed": "rank", "length": "length_rank", "brightness": "brightness_rank"}[by]
     ranked = [m for m in meteors if getattr(m, attribute)]
     return sorted(ranked, key=lambda m: getattr(m, attribute))[:count]
 

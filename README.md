@@ -38,7 +38,9 @@ meteor-cut night.mp4 --start "2026-08-12 22:30" --site 50.45,30.52 --solve
 meteor-cut watch 0 -o tonight            # a live camera; Ctrl+C to stop
 ```
 
-Or start the upload page and use it from your browser. It runs on your computer; videos never leave it.
+Or start the upload page and use it from your browser. It runs on your computer; videos never leave it. Each video's
+results are kept in a folder of their own under `~/Meteor Cut` (choose with `--results`), named after the video and
+the time, so they stay after the server stops; the uploaded copy of the video is deleted once processed.
 
 ```bash
 meteor-cut serve            # then open http://127.0.0.1:8765
@@ -63,8 +65,8 @@ Results go to `night-meteors/` beside the video (choose with `-o`):
 | `report.html` | Everything on one page to read or share: totals, meteors per hour, the pictures, sortable tables |
 | `meteors.mp4` | The highlight video, 1920x1080, ending on the pictures below |
 | `composite.png` | Every meteor of the night on one clean picture of the sky, lined up on the stars when they are identified |
-| `top.png` | The five longest trails and the five brightest meteors |
-| `shorts/` | Vertical 9:16 clips of the best meteors (`01-meteor-12.mp4` is the best): a close-up over the whole frame, then a quarter-speed replay |
+| `top.png` | The five fastest meteors, the five longest trails and the five brightest |
+| `shorts/` | Vertical 9:16 clips for Shorts and Reels, a folder per top list: `fastest/`, `longest/` and `brightest/` (`01-meteor-12.mp4` tops the list). Each is a close-up over the whole frame, then a quarter-speed replay |
 | `trajectories.png` | Every meteor of the night, coloured by speed, and the radiant they trace back to |
 | `satellites.png` | Every satellite and plane |
 | `heatmap.png` | Where in the frame meteors appeared |
@@ -132,7 +134,7 @@ video file works too, read as fast as the computer allows, as if it were live.
 | `--min-speed F` | Slow meteors are missed (default 0.04 frame widths per second) |
 | `--no-trails` | You prefer a clean picture without the paths of earlier meteors |
 | `--no-video` | You only need the tables and pictures |
-| `--shorts N` | You want more or fewer vertical clips (default 5, 0 for none) |
+| `--shorts N` | You want more or fewer vertical clips: the top N of each list (default 5, 0 for none) |
 | `--no-composite` | You do not need the composite picture |
 
 `meteor-cut --help`, `meteor-cut process --help` and `meteor-cut watch --help` list everything.

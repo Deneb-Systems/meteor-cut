@@ -163,7 +163,9 @@ minus a small noise floor so hundreds of streaks do not add up their noise. With
 remapped from where its piece of sky was then to where it was at the base picture's moment, so the shower radiates
 from one point among the stars while the landscape stays sharp.
 
-Vertical clips go to the best meteors: brightest first, then longest. Each is 1080x1920: a square close-up holding the
+Vertical clips go to the top meteors of each list, in a folder per list: the fastest (by angular speed when the lens or
+the stars are known), the longest trails and the brightest. A meteor on several lists gets a clip in each, titled with
+its place ("2nd fastest"). Each is 1080x1920: a square close-up holding the
 whole path with a margin (never closer than 300 source pixels), the whole frame below with the close-up outlined, and
 the meteor's details as titles. It plays from 1.2 s before the meteor to 1.5 s after, then replays the meteor at a
 quarter speed.

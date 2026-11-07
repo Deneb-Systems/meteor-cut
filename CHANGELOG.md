@@ -9,12 +9,13 @@ All notable changes to this project are listed here. The format follows
 
 - `composite.png`: every meteor of the night on one clean picture of the sky, lined up on the stars when the video is
   plate-solved, as astrophotographers make by hand.
-- Vertical 9:16 clips of the best meteors in `shorts/` (`--shorts N`): a close-up over the whole frame, then a
-  quarter-speed replay.
+- Vertical 9:16 clips in `shorts/fastest`, `shorts/longest` and `shorts/brightest` (the top N of each list,
+  `--shorts N`): a close-up over the whole frame, titled with the meteor's place on the list, then a quarter-speed
+  replay.
 - Brightness of every meteor, and with a plate solution an approximate magnitude from the catalogued stars in the same
   frames; fireballs (magnitude -4 or brighter) are flagged.
-- Top five longest trails and top five brightest meteors: `top.png`, the report, the video's closing cards,
-  `summary.json`, and `length_rank` / `brightness_rank` in `meteors.csv`.
+- Top five fastest, longest trails and brightest meteors: `top.png`, the report, the video's closing cards,
+  `summary.json`, and `length_rank` / `brightness_rank` in `meteors.csv` beside `speed_rank`.
 - Plate solving (`--solve` with astrometry.net's solve-field, or `--wcs` with a solution from nova.astrometry.net;
   `meteor-cut sky-frame` and `meteor-cut star-index` help with both): exact angular speeds, sky coordinates, and the
   radiant among the stars, which no longer smears as the sky turns through the night.
@@ -27,6 +28,9 @@ All notable changes to this project are listed here. The format follows
   number of vertical clips, and shows the new results.
 
 ### Changed
+
+- The upload page keeps each video's results in `~/Meteor Cut/<video> <date time>/` (`meteor-cut serve --results DIR`)
+  instead of a temporary folder deleted when the server stopped, and shows where they are.
 
 - Planes are told from satellites by strobe flashes (brief, sharp, repeated) instead of any brightness spread. Flaring
   satellites, faint ones the tracker briefly loses, and twinkling no longer count as planes: on an 8-hour night 81

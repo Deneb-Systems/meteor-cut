@@ -1,10 +1,13 @@
 import io
+import re
 import time
+from datetime import datetime
+from pathlib import Path
 
 import pytest
 
 from meteor_cut.web import create_app
-from meteor_cut.web.app import _is_loopback
+from meteor_cut.web.app import _is_loopback, _results_folder
 
 
 @pytest.fixture
@@ -19,7 +22,7 @@ def upload(client, data: bytes, name: str = "night.avi", **form):
 def test_the_page_lists_the_sensors(client):
     page = client.get("/")
     assert page.status_code == 200 and b"Meteor Cut" in page.data and b"full-frame" in page.data
-    assert b"by <a" in page.data and b"Deneb Systems" in page.data
+    assert re.search(rb"by\s+<a", page.data) and b"Deneb Systems" in page.data
     with client.get("/static/deneb-systems-logo.svg") as logo:
         assert logo.status_code == 200 and b"<svg" in logo.data
 
@@ -115,3 +118,20 @@ def test_progress_checks_are_not_logged_but_everything_else_is():
     assert quiet.filter(line('127.0.0.1 - - [07/Nov/2026 13:53:06] "POST /jobs HTTP/1.1" 202 -'))
     assert quiet.filter(line('127.0.0.1 - - [07/Nov/2026 13:53:06] "GET /jobs/cbbdc65308/meteors.mp4 HTTP/1.1" 200 -'))
     assert quiet.filter(line('127.0.0.1 - - [07/Nov/2026 13:53:06] "GET /jobs/nope HTTP/1.1" 404 -'))
+
+
+def test_results_are_kept_in_a_folder_named_after_the_video(tmp_path, fake_tracker, night_video):
+    results = tmp_path / "results"
+    app = create_app(tmp_path / "work", results_dir=results, tracker_factory=fake_tracker).test_client()
+    job = upload(app, night_video.path.read_bytes(), "my night.avi", shorts="0").get_json()["id"]
+    for _ in range(300):
+        status = app.get(f"/jobs/{job}").get_json()
+        if status["done"]:
+            break
+        time.sleep(0.1)
+    folder = Path(status["folder"])
+    assert folder.parent == results and folder.name.startswith("my_night ")
+    assert (folder / "report.html").exists() and (folder / "meteors.csv").exists()
+    assert not any((tmp_path / "work" / "uploads").rglob("*.avi"))  # the uploaded copy is gone, the results stay
+    second = _results_folder(results, "my night.avi", datetime.strptime(folder.name[9:], "%Y-%m-%d %H.%M"))
+    assert second.name.endswith("(2)")
