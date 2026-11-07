@@ -93,3 +93,13 @@ def test_long_satellite_passes_are_shortened_in_the_video():
     assert start > objects[0].start_frame and end < objects[0].end_frame  # the middle of the pass
     whole = clips(scan, objects, Style(show=frozenset({Kind.SATELLITE}), pass_clip_s=None))
     assert whole[0][1] - whole[0][0] > 12 * FPS
+
+
+def test_time_left_from_the_average_speed_so_far():
+    from meteor_cut.text import duration_text, time_left_s
+
+    assert time_left_s(0.25, 0.0, 600) == pytest.approx(1800)  # a quarter in 10 min: 30 min to go
+    assert time_left_s(0.6, 0.5, 60) == pytest.approx(240)  # measured from where this step was first seen
+    assert time_left_s(0.0001, 0.0, 60) is None and time_left_s(0.5, 0.0, 1) is None  # too early to say
+    assert time_left_s(1.0, 0.0, 60) == 0
+    assert [duration_text(s) for s in (30, 600, 3900)] == ["under a minute", "about 10 min", "about 1 h 05 min"]

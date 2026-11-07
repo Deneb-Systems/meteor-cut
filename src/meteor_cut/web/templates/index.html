@@ -92,6 +92,7 @@
 
     .progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem }
     .stage { color: var(--silver-bright); font-size: 1.125rem; font-weight: 600 }
+    .eta { display: block; margin-top: .25rem; color: var(--muted); font-size: .9375rem; font-variant-numeric: tabular-nums }
     .percent { color: var(--signal); font-size: clamp(2.25rem, 5vw, 3.25rem); font-weight: 700; letter-spacing: -.03em;
                font-variant-numeric: tabular-nums }
     .bar { height: .5rem; margin-top: 1rem; border-radius: 999px; background: var(--graphite-light); overflow: hidden }
@@ -157,8 +158,8 @@
 
   <section id="job" class="card" hidden aria-live="polite">
     <div class="progress-head">
-      <span class="stage" id="stage">Uploading</span>
-      <span class="percent" id="percent">0%</span>
+      <span><span class="stage" id="stage">Uploading</span><span class="eta" id="eta"></span></span>
+      <span class="percent" id="percent">0.00%</span>
     </div>
     <div class="bar"><div id="fill"></div></div>
     <div id="result"></div>
@@ -184,9 +185,31 @@
   for (const type of ['dragleave', 'drop']) drop.addEventListener(type, () => drop.classList.remove('over'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; chosen(); } });
 
+  // Time left, worked out on the fly: the average speed of the current step since it started (or since this page
+  // started watching it), applied to what is left of the step.
+  const eta = $('eta');
+  let step = null;
+
+  function duration(seconds) {
+    if (seconds < 60) return 'under a minute';
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `about ${minutes} min`;
+    return `about ${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`;
+  }
+
+  function timeLeft(stageText, fraction) {
+    const now = performance.now() / 1000;
+    if (!step || step.name !== stageText || fraction < step.fraction) step = { name: stageText, start: now, fraction };
+    const done = fraction - step.fraction, elapsed = now - step.start;
+    if (fraction >= 1) return '';
+    if (done <= 0.0005 || elapsed < 3) return 'working out the time left…';
+    return `${duration((1 - fraction) * elapsed / done)} left for this step`;
+  }
+
   function show(stageText, fraction) {
     stage.textContent = stageText;
-    percent.textContent = `${Math.round(fraction * 100)}%`;
+    eta.textContent = timeLeft(stageText, fraction);
+    percent.textContent = `${(Math.floor(fraction * 10000) / 100).toFixed(2)}%`;
     fill.style.width = `${fraction * 100}%`;
   }
 
@@ -213,6 +236,7 @@
   function fail(message) {
     stage.innerHTML = `<span class="error">${esc(message)}</span>`;
     percent.textContent = '';
+    eta.textContent = '';
     go.disabled = false;
   }
 
@@ -231,7 +255,8 @@
     const stat = (value, label) => `<div class="stat"><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
     const file = (name) => `/jobs/${id}/${name}`;
     stage.textContent = `Done · ${s.name}`;
-    percent.textContent = '100%';
+    percent.textContent = '100.00%';
+    eta.textContent = '';
     result.innerHTML = `
       <div class="stats">
         ${stat(m.meteors, 'meteors')}

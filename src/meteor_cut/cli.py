@@ -15,6 +15,7 @@ from .errors import MeteorCutError
 from .optics import SENSORS
 from .pipeline import Lens, Result, parse_show, process
 from .render import Style
+from .text import duration_text, time_left_s
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE = 0, 1, 2
 
@@ -104,19 +105,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 class _Progress:
-    """One updating line on stderr per stage, when stderr is a terminal."""
+    """One updating line on stderr per stage, with the time left, when stderr is a terminal."""
 
     def __init__(self, enabled: bool):
         self.enabled = enabled and sys.stderr.isatty()
         self.stage = ""
+        self.started = 0.0
+        self.start_fraction = 0.0
 
     def __call__(self, stage: str, fraction: float) -> None:
         if not self.enabled:
             return
-        if stage != self.stage and self.stage:
-            print(file=sys.stderr)
-        self.stage = stage
-        print(f"\r{stage}: {fraction * 100:5.1f}%", end="", file=sys.stderr, flush=True)
+        if stage != self.stage:
+            if self.stage:
+                print(file=sys.stderr)
+            self.stage, self.started, self.start_fraction = stage, time.monotonic(), fraction
+        left = time_left_s(fraction, self.start_fraction, time.monotonic() - self.started)
+        eta = f"  ({duration_text(left)} left)" if left else ""
+        line = f"\r{stage}: {int(fraction * 10000) / 100:6.2f}%{eta}"
+        print(f"{line:<70}", end="", file=sys.stderr, flush=True)
 
     def close(self) -> None:
         if self.enabled and self.stage:

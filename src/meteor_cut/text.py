@@ -47,3 +47,23 @@ def speed_text(obj: SkyObject) -> tuple[str, str]:
 def ascii_text(text: str) -> str:
     """OpenCV's built-in font has no degree or ≥ signs."""
     return text.replace("°", " deg").replace("≥", ">")
+
+
+def time_left_s(fraction: float, start_fraction: float, elapsed_s: float) -> float | None:
+    """Seconds left in a step, from its average speed so far; None until there is enough to go on."""
+    done = fraction - start_fraction
+    if fraction >= 1:
+        return 0.0
+    if done <= 0.0005 or elapsed_s < 3:
+        return None
+    return (1 - fraction) * elapsed_s / done
+
+
+def duration_text(seconds: float) -> str:
+    """ "under a minute", "about 42 min", "about 1 h 05 min"."""
+    if seconds < 60:
+        return "under a minute"
+    minutes = round(seconds / 60)
+    if minutes < 60:
+        return f"about {minutes} min"
+    return f"about {minutes // 60} h {minutes % 60:02d} min"
