@@ -75,3 +75,17 @@ def test_end_cards_are_letterboxed():
     card = renderer.card(np.full((500, 500, 3), 200, np.uint8))
     assert card.shape == (1080, 1920, 3)
     assert card[540, 960].tolist() == [200, 200, 200] and card[540, 10].tolist() != [200, 200, 200]
+
+
+def test_long_satellite_passes_are_shortened_in_the_video():
+    from conftest import FPS
+    from meteor_cut.classify import find_slow_objects
+
+    satellite = make_track(10_000_001, line(200, 300, 6, 2, 60), start=100, step=5, slow=True)  # 12 s pass
+    scan = make_scan(slow=(satellite,), frames=1000)
+    objects, _ = find_slow_objects(scan, [])
+    ((start, end),) = clips(scan, objects, Style(show=frozenset({Kind.SATELLITE})))
+    assert (end - start) / FPS == pytest.approx(3.0, abs=0.1)
+    assert start > objects[0].start_frame and end < objects[0].end_frame  # the middle of the pass
+    whole = clips(scan, objects, Style(show=frozenset({Kind.SATELLITE}), pass_clip_s=None))
+    assert whole[0][1] - whole[0][0] > 12 * FPS

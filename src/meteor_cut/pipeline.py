@@ -13,7 +13,7 @@ import cv2
 from .classify import Classification, Rules, classify
 from .errors import SettingsError
 from .images import busiest_scene, heatmap, trajectories
-from .model import Kind
+from .model import Kind, Scan
 from .optics import DEFAULT_METEOR_ALTITUDE_KM, Camera, parse_sensor
 from .radiant import find_radiant
 from .render import Style, write_highlights
@@ -87,15 +87,13 @@ def process(
     """Finds the meteors (and satellites and planes) in a video and writes everything into `out_dir`.
 
     Writes meteors.mp4 (when anything is shown), trajectories.png and heatmap.png (when there are meteors),
-    meteors.csv, satellites_planes.csv, meteor_points.csv, rejected.csv and summary.json.
+    meteors.csv, satellites_planes.csv, meteor_points.csv, rejected.csv and summary.json. This is scan() followed by
+    analyse(); call those two yourself to try other rules or styles without scanning the video again.
     """
-    lens, rules, style = lens or Lens(), rules or Rules(), style or Style()
+    lens, style = lens or Lens(), style or Style()
     report = progress or (lambda stage, fraction: None)
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-
     info = probe(video)
-    camera = lens.camera(info.width, info.height)  # bad lens settings fail now, not after an hour of scanning
+    lens.camera(info.width, info.height)  # bad lens settings fail now, not after an hour of scanning
     scanned = scan(
         video,
         sky_region=sky_region,
@@ -103,6 +101,39 @@ def process(
         slow_objects=find_slow_objects or bool(style.show - {Kind.METEOR}),
         progress=lambda f: report("Finding moving objects", f),
     )
+    return analyse(
+        scanned,
+        out_dir,
+        lens=lens,
+        rules=rules,
+        style=style,
+        sky_region=sky_region,
+        make_video=make_video,
+        progress=progress,
+    )
+
+
+def analyse(
+    scanned: Scan,
+    out_dir: str | Path,
+    *,
+    lens: Lens | None = None,
+    rules: Rules | None = None,
+    style: Style | None = None,
+    sky_region: tuple[int, int, int, int] | None = None,
+    make_video: bool = True,
+    progress: Progress | None = None,
+) -> Result:
+    """Everything after the scan: classify, measure, and write the video, pictures and tables into `out_dir`.
+
+    sky_region is only recorded in the summary here; it takes effect in scan().
+    """
+    lens, rules, style = lens or Lens(), rules or Rules(), style or Style()
+    report = progress or (lambda stage, fraction: None)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    camera = lens.camera(scanned.width, scanned.height)
+
     report("Sorting meteors from everything else", 0.0)
     found = classify(scanned, camera, rules, lens.altitude_km)
     log.info(

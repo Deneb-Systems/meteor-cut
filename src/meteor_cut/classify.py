@@ -50,8 +50,9 @@ class Rules:
     slow_min_straightness: float = 0.85
     slow_max_line_error: float = 0.06
     blink_variation: float = 0.25  # brightness spread (std / mean) above which a light counts as blinking
-    blink_gaps: float = 0.7  # share of the slow tracker's frames detected, below which it counts as blinking
-    group_radius: float = 0.05  # of frame width: lights this close, moving together, belong to one plane
+    # Lights of one plane fly side by side (wing tips), close together. Satellites of a train (Starlink) fly one
+    # behind another along the same line, so a companion counts only when it is beside the light, not ahead or behind.
+    group_radius: float = 0.02  # of frame width
     group_heading_deg: float = 15.0
     # A slow light moving where the meteor pass already saw people or lamps (erratic, repeating or grouped motion)
     # is one of them, not a satellite or plane crossing open sky.
@@ -220,16 +221,29 @@ def _slow_shape(
     return None
 
 
-def _travels_with(track: Track, others: Sequence[Track], radius: float, max_heading_deg: float) -> bool:
+def _beside(track: Track, other: Track, radius: float) -> bool:
+    """`other` keeps pace beside `track` (offset mostly across the direction of travel), within `radius`."""
     pts = track.detections
-    first, last = pts[0].frame, pts[-1].frame
+    theirs = {p.frame: p for p in other.detections}
+    heading = math.radians(heading_deg(pts))
+    ux, uy = math.cos(heading), math.sin(heading)
+    offsets = [(q.cx - p.cx, q.cy - p.cy) for p in pts if (q := theirs.get(p.frame)) is not None]
+    if len(offsets) < 3:
+        return False
+    dx = statistics.fmean(o[0] for o in offsets)
+    dy = statistics.fmean(o[1] for o in offsets)
+    along, across = abs(dx * ux + dy * uy), abs(-dx * uy + dy * ux)
+    return math.hypot(dx, dy) <= radius and across > along
+
+
+def _travels_with(track: Track, others: Sequence[Track], radius: float, max_heading_deg: float) -> bool:
+    """Another light flying beside this one in the same direction: a plane's lights."""
+    pts = track.detections
     return any(
         other is not track
         and other.scene == track.scene
-        and other.detections[0].frame <= last
-        and other.detections[-1].frame >= first
         and angle_between_deg(heading_deg(other.detections), heading_deg(pts)) < max_heading_deg
-        and any_within(pts, other.detections, radius)
+        and _beside(track, other, radius)
         for other in others
     )
 
@@ -271,8 +285,8 @@ def find_slow_objects(
         variation = statistics.pstdev(peaks) / mean if mean else 0.0
         detected_share = min(1.0, len(pts) / ((pts[-1].frame - pts[0].frame) / step + 1))
         companion = _travels_with(track, candidates, radius, rules.group_heading_deg)
-        blinking = variation > rules.blink_variation or detected_share < rules.blink_gaps
-        kind = Kind.PLANE if blinking or companion else Kind.SATELLITE
+        # Gaps alone do not make a plane: faint satellites drop in and out of detection too.
+        kind = Kind.PLANE if variation > rules.blink_variation or companion else Kind.SATELLITE
         diagnostics: dict[str, float | bool] = {
             "brightness_variation": round(variation, 3),
             "detected_share": round(detected_share, 3),

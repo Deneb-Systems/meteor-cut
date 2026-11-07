@@ -46,17 +46,26 @@ class Style:
     show: frozenset[Kind] = field(default_factory=lambda: frozenset({Kind.METEOR}))
     trails: bool = True  # keep past trails faintly on screen
     end_card_s: float = 4.0  # seconds for each closing image
+    # Satellites and planes take half a minute or more to cross; the video keeps this many seconds from the middle of
+    # each pass (their whole path is in the tables and on the trajectories picture). None keeps whole passes.
+    pass_clip_s: float | None = 3.0
     crf: int = 20  # H.264 quality: lower is better and larger
+
+
+def _span(obj: SkyObject, style: Style, fps: float) -> tuple[int, int]:
+    """The frames of an object to show: all of a meteor, the middle of a long satellite or plane pass."""
+    if obj.kind is Kind.METEOR or style.pass_clip_s is None or obj.duration_s <= style.pass_clip_s:
+        return obj.start_frame - round(style.before_s * fps), obj.end_frame + round(style.after_s * fps)
+    middle, half = (obj.start_frame + obj.end_frame) // 2, round(style.pass_clip_s * fps / 2)
+    return middle - half, middle + half
 
 
 def clips(scan: Scan, objects: Sequence[SkyObject], style: Style) -> list[tuple[int, int]]:
     """Frame ranges to keep, inside each object's scene, merged when they nearly touch."""
     ranges = sorted(
-        (
-            max(scan.scene_bounds(o.scene)[0], o.start_frame - round(style.before_s * scan.fps)),
-            min(scan.scene_bounds(o.scene)[1], o.end_frame + round(style.after_s * scan.fps)),
-        )
+        (max(scan.scene_bounds(o.scene)[0], start), min(scan.scene_bounds(o.scene)[1], end))
         for o in objects
+        for start, end in [_span(o, style, scan.fps)]
     )
     merged: list[list[int]] = []
     gap = round(style.merge_gap_s * scan.fps)

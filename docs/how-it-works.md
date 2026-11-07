@@ -67,9 +67,11 @@ changed from Python; the command line exposes the two most useful ones.
 The slow tracker's tracks that last at least 2 seconds, move in a straight line, and move at 0.2-12 % of the frame
 width per second are satellites or planes. Each one's brightness over time decides which:
 
-- **Plane:** blinking (brightness spread above 25 % of its mean), gaps (detected in fewer than 70 % of the slow
-  tracker's frames), or travelling together with another light. Lights of one plane travelling together are merged.
-- **Satellite:** one steady point.
+- **Plane:** blinking (brightness spread above 25 % of its mean), or flying with another light beside it (within 2 %
+  of the frame width, offset across the direction of travel, like wing-tip lights). Lights of one plane are merged.
+- **Satellite:** everything else: one point, steady or fading. Gaps in detection do not make a plane, because faint
+  satellites drop in and out of detection too, and satellites of a train (Starlink) fly one behind another, not side
+  by side.
 
 This is a rule of thumb. A satellite that flares (an Iridium-style glint, a tumbling rocket body) can be called a
 plane, and a distant plane with dim lights can be called a satellite. Short tracks that the slow tracker sees during
@@ -96,7 +98,9 @@ is often outside the frame.
 
 ## 6. The highlight video
 
-Every kept object becomes a clip from 0.7 s before it appears to 1 s after it ends, clipped to its scene. Clips closer
+Every meteor becomes a clip from 0.7 s before it appears to 1 s after it ends, clipped to its scene. Satellites and
+planes, when shown, take half a minute or more to cross, so only the middle 3 seconds of each pass are kept
+(`Style.pass_clip_s`); their whole paths are in the tables and on the trajectories picture. Clips closer
 than 0.6 s are joined. For long recordings the second pass jumps straight to each clip instead of decoding the hours
 between; it lands two seconds early and reads forward, so frame numbers stay exact even where seeking is approximate,
 and it falls back to reading straight through when a video cannot seek at all.

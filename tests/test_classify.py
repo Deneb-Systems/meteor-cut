@@ -83,9 +83,9 @@ def test_a_steady_light_is_a_satellite_and_a_blinking_one_a_plane():
     assert found.planes[0].diagnostics["brightness_variation"] > Rules().blink_variation
 
 
-def test_lights_travelling_together_are_one_plane():
+def test_lights_side_by_side_are_one_plane():
     left = slow_track(1, 900, 700, -5, -3, 40, start=100, peaks=[230] * 40)
-    right = slow_track(2, 930, 700, -5, -3, 40, start=100, peaks=[180] * 40)
+    right = slow_track(2, 909, 685, -5, -3, 40, start=100, peaks=[180] * 40)  # beside it, across the heading
     found = classify(make_scan(slow=(left, right)))
     assert [o.track_id for o in found.planes] == [left.id]
     assert [r.reason for r in found.rejected] == [Reason.SAME_PLANE]
@@ -125,3 +125,18 @@ def test_slow_movement_where_people_were_seen_is_not_a_satellite_or_plane():
     found = classify(make_scan(*wobbly, slow=(satellite_like, far_satellite)))
     assert [o.track_id for o in found.satellites] == [far_satellite.id]
     assert Reason.SLOW_AMONG_PEOPLE in {r.reason for r in found.rejected}
+
+
+def test_a_satellite_train_is_satellites_not_a_plane():
+    leader = slow_track(1, 900, 700, -5, -3, 40, start=100)
+    follower = slow_track(2, 930, 718, -5, -3, 40, start=100)  # behind it, along the same line
+    found = classify(make_scan(slow=(leader, follower)))
+    assert len(found.satellites) == 2 and not found.planes
+
+
+def test_a_faint_satellite_that_drops_out_is_still_a_satellite():
+    faint = slow_track(1, 200, 300, 6, 2, 40, start=100)
+    faint.points = faint.points[::3]  # detected in only a third of the slow tracker's frames
+    found = classify(make_scan(slow=(faint,)))
+    assert [o.label for o in found.satellites] == ["S1"]
+    assert found.satellites[0].diagnostics["detected_share"] < 0.5

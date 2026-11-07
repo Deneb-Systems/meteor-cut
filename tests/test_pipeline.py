@@ -69,3 +69,13 @@ def test_show_option():
     assert parse_show("") == {Kind.METEOR}
     with pytest.raises(SettingsError):
         parse_show("ufos")
+
+
+def test_analyse_reuses_a_scan_with_other_settings(night_video, fake_tracker, tmp_path):
+    from meteor_cut import Rules, analyse, scan
+
+    scanned = scan(night_video.path, tracker_factory=fake_tracker)
+    strict = analyse(scanned, tmp_path / "strict", rules=Rules(min_speed=10.0), make_video=False)
+    loose = analyse(scanned, tmp_path / "loose", make_video=False)
+    assert not strict.found.meteors and len(loose.found.meteors) == 1
+    assert len(fake_tracker.created) == 2  # scanned once: the fast and the slow tracker

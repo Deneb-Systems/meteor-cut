@@ -17,9 +17,10 @@ from .classify import Classification, Rules
 from .errors import MeteorCutError, SettingsError, SkyTrackerError, VideoError
 from .model import Kind, Reason, Rejection, SkyObject
 from .optics import AngularMotion, Camera
-from .pipeline import Lens, Result, parse_show, process
+from .pipeline import Lens, Result, analyse, parse_show, process
 from .radiant import Radiant
 from .render import Style
+from .scan import scan
 
 try:
     __version__ = version("meteor-cut")
@@ -44,6 +45,8 @@ __all__ = [
     "Style",
     "VideoError",
     "__version__",
+    "analyse",
     "parse_show",
     "process",
+    "scan",
 ]
