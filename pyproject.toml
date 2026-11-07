@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "meteor-cut"
+version = "0.1.0"
+description = "Find the meteors in a tripod video and make a highlight video with their speeds, tracked with Sky Tracker."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "sky-tracker-sdk>=1.2",
+  "opencv-python-headless>=4.8",
+  "numpy>=1.24",
+  "pillow>=10.1",
+  "imageio-ffmpeg>=0.5",
+  "flask>=3.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+meteor-cut = "meteor_cut.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/meteor_cut"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
