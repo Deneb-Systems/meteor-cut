@@ -103,6 +103,7 @@ class Reason(str, Enum):
     SLOW_NOT_STRAIGHT = "slow_not_straight"
     PART_OF_METEOR = "part_of_meteor"
     SAME_PLANE = "same_plane"
+    METEOR_FRAGMENT = "meteor_fragment"
     SLOW_AMONG_PEOPLE = "slow_among_people"
 
     @property
@@ -124,6 +125,7 @@ _REASONS = {
     Reason.SLOW_NOT_STRAIGHT: "slow, and did not move in a straight line",
     Reason.PART_OF_METEOR: "the slow tracker's view of a meteor",
     Reason.SAME_PLANE: "another light of a plane already counted",
+    Reason.METEOR_FRAGMENT: "another piece of a meteor already counted (it broke up)",
     Reason.SLOW_AMONG_PEOPLE: "moves where people or lamps were seen moving (not across open sky)",
 }
 

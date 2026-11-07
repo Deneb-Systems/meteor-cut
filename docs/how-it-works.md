@@ -59,12 +59,20 @@ A track is a meteor when it is:
 | Short enough in time | 3 s | `too_long` |
 | Fast enough | 4 % of the frame width per second | `too_slow` |
 | Straight (distance / path length, and distance from a fitted line) | 0.9, 4 % | `not_straight` |
-| Not in a spot where other things keep moving, within 10 s and 8 % of the frame width | fewer than 2 | `repeats_in_place` |
-| Not moving at the same time as other things nearby | fewer than 2 | `moves_in_group` |
+| Not in a spot where other things keep moving, within 10 s and 8 % of the frame width (slower tracks only) | fewer than 2 | `repeats_in_place` |
+| Not moving at the same time as other things nearby (slower tracks only) | fewer than 2 | `moves_in_group` |
+| Not a piece of a meteor already counted | | `meteor_fragment` |
 
-The last two rules are what remove people and lights: a phone screen or a head torch flares in the same place again
-and again, and a person shows up as several moving parts at once. Meteors in a shower can arrive close together, but
-almost never in the same place within seconds.
+The two crowd rules are what remove people and lights: a phone screen or a head torch flares in the same place again
+and again, and a person shows up as several moving parts at once. They apply only to tracks slower than 15 % of the
+frame width per second. Lights carried by people move at hand and walking speed, well below that (at most 13 % in the
+compilation they were tuned on), while on an 8-hour Perseid night at least six of the twelve tracks the rules removed
+were meteors faster than that, rejected for tree branches flickering in the wind, noise or other meteors near them. A
+fast, straight streak is kept whatever moves near it.
+
+Several meteors at once are counted separately, side by side or crossing. A meteor that breaks up is one meteor: pieces
+flying at the same time, within 12 degrees of the same direction and within 2 % of the frame width of the same line,
+close together, are fragments of the longest one.
 
 All distances are fractions of the frame width, so the same rules suit 720p and 4K. They live in `Rules` and can be
 changed from Python; the command line exposes the two most useful ones.

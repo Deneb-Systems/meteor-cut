@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .geometry import angle_between_deg, any_within, chord_length, heading_deg, line_error, straightness
-from .model import Kind, Reason, Rejection, Scan, SkyObject, Track
+from .model import Kind, Point, Reason, Rejection, Scan, SkyObject, Track
 from .optics import DEFAULT_METEOR_ALTITUDE_KM, Camera, measure_motion
 from .scan import SLOW_RATE_HZ
 
@@ -37,11 +37,19 @@ class Rules:
     min_straightness: float = 0.9
     max_line_error: float = 0.04  # RMS distance from the fitted line, as a fraction of the track's length
     # Lights and people: other moving things near the same spot within hotspot_window_s, either at other times
-    # (a light that keeps flaring) or at the same time (a person: head, arms, a torch).
+    # (a light that keeps flaring) or at the same time (a person: head, arms, a torch). Lights carried by people move
+    # at hand and walking speed; across a wide view that is well under crowd_max_speed, while meteors usually cross
+    # faster. A streak faster than that is a meteor whatever else moves near it: branches in the wind, noise, another
+    # meteor, or its own pieces when it breaks up.
     hotspot_radius: float = 0.08  # of frame width
     hotspot_window_s: float = 10.0
     hotspot_repeats: int = 2
     hotspot_together: int = 2
+    crowd_max_speed: float = 0.15  # frame widths per second
+    # Pieces of one meteor that broke up fly together along its path: within fragment_offset of each other's line
+    # and fragment_heading_deg of each other's direction, at the same time. They count as one meteor.
+    fragment_offset: float = 0.02  # of frame width
+    fragment_heading_deg: float = 12.0
     # Satellites and planes (slow tracker).
     slow_min_detections: int = 6
     slow_min_duration_s: float = 2.0
@@ -157,7 +165,7 @@ def find_meteors(
     for track in moving:
         pts = track.detections
         reason = _meteor_shape(track, scan.fps, scan.width, rules)
-        if reason is None:
+        if reason is None and _speed(pts, scan.fps) < rules.crowd_max_speed * scan.width:
             repeats, together = _crowd(track, moving, radius, window)
             if repeats >= rules.hotspot_repeats:
                 reason = Reason.REPEATS_IN_PLACE
@@ -170,8 +178,51 @@ def find_meteors(
         if camera is not None:
             meteor.motion = measure_motion(camera, meteor.start, meteor.end, meteor.duration_s, altitude_km)
         meteors.append(meteor)
+    meteors, fragments = _merge_fragments(meteors, scan.width, rules)
+    rejected.extend(fragments)
     _number_and_rank(meteors)
     return meteors, rejected
+
+
+def _speed(pts: Sequence[Point], fps: float) -> float:
+    """Pixels per second, first to last detection."""
+    return chord_length(pts) / (max(1, pts[-1].frame - pts[0].frame) / fps)
+
+
+def _off_line(point: tuple[float, float], start: tuple[float, float], end: tuple[float, float]) -> float:
+    """Distance of a point from the infinite line through start and end."""
+    (x0, y0), (x1, y1) = start, end
+    length = math.hypot(x1 - x0, y1 - y0)
+    if length == 0:
+        return math.dist(point, start)
+    return abs((x1 - x0) * (y0 - point[1]) - (x0 - point[0]) * (y1 - y0)) / length
+
+
+def _same_meteor(a: SkyObject, b: SkyObject, width: int, rules: Rules) -> bool:
+    """b is a piece of a: at the same time, the same way, on the same line, and close by."""
+    if a.scene != b.scene or a.start_frame > b.end_frame or b.start_frame > a.end_frame:
+        return False
+    if angle_between_deg(a.direction_deg, b.direction_deg) > rules.fragment_heading_deg:
+        return False
+    limit = rules.fragment_offset * width
+    middle = ((b.start[0] + b.end[0]) / 2, (b.start[1] + b.end[1]) / 2)
+    near = min(math.dist(p, q) for p in (a.start, a.end) for q in (b.start, b.end)) <= rules.hotspot_radius * width
+    overlapping = any_within(a.points, b.points, rules.hotspot_radius * width)
+    return _off_line(middle, a.start, a.end) <= limit and (near or overlapping)
+
+
+def _merge_fragments(meteors: list[SkyObject], width: int, rules: Rules) -> tuple[list[SkyObject], list[Rejection]]:
+    """One meteor per break-up: the longest piece is kept, the others are rejected as its fragments."""
+    kept: list[SkyObject] = []
+    rejected: list[Rejection] = []
+    for meteor in sorted(meteors, key=lambda m: m.length_px, reverse=True):
+        if any(_same_meteor(main, meteor, width, rules) for main in kept):
+            rejected.append(
+                Rejection(meteor.track_id, meteor.scene, meteor.start_frame, meteor.end_frame, Reason.METEOR_FRAGMENT)
+            )
+        else:
+            kept.append(meteor)
+    return kept, rejected
 
 
 def _is_meteor_echo(track: Track, meteors: Sequence[SkyObject], radius: float) -> bool:

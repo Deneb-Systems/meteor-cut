@@ -29,6 +29,11 @@ All notable changes to this project are listed here. The format follows
 
 ### Changed
 
+- The people-and-lamps rules (`repeats_in_place`, `moves_in_group`) apply only to tracks slower than 15 % of the frame
+  width per second (`Rules.crowd_max_speed`): on an 8-hour night at least six real meteors had been rejected for tree
+  branches or noise moving near them. A meteor that breaks up now counts once; its other pieces are rejected as
+  `meteor_fragment`, where before all of them were rejected as `moves_in_group`.
+
 - The upload page keeps each video's results in `~/Meteor Cut/<video> <date time>/` (`meteor-cut serve --results DIR`)
   instead of a temporary folder deleted when the server stopped, and shows where they are.
 

@@ -34,15 +34,47 @@ def test_what_is_not_a_meteor(points, reason):
 
 
 def test_a_light_flaring_in_one_place_is_not_a_meteor():
-    flares = [make_track(i, line(1200, 870, 15, 2, 8), start=100 + 40 * i) for i in range(1, 5)]
+    # A lamp or phone lighting up again and again, sweeping a little at hand speed (0.1 frame widths a second).
+    flares = [make_track(i, line(1200, 870, 8, 1, 8), start=100 + 40 * i) for i in range(1, 5)]
     meteors, rejected = find_meteors(make_scan(*flares))
     assert not meteors and {r.reason for r in rejected} == {Reason.REPEATS_IN_PLACE}
 
 
 def test_several_things_moving_together_are_not_meteors():
-    person = [make_track(i, line(1100 + 10 * i, 500, 12, 4, 8), start=200) for i in range(1, 4)]
+    # A person walking with a torch: head, arm and light together, at walking speed.
+    person = [make_track(i, line(1100 + 10 * i, 500, 7, 2, 8), start=200) for i in range(1, 4)]
     meteors, rejected = find_meteors(make_scan(*person))
     assert not meteors and {r.reason for r in rejected} == {Reason.MOVES_IN_GROUP}
+
+
+def test_a_fast_meteor_is_kept_whatever_flickers_near_it():
+    meteor = make_track(1, line(800, 700, 24, 6, 12), start=300)  # 0.32 frame widths a second
+    branches = [make_track(10 + i, line(900 + 30 * i, 760, 2, 1, 6), start=290 + 20 * i) for i in range(4)]
+    meteors, rejected = find_meteors(make_scan(meteor, *branches))
+    assert [m.track_id for m in meteors] == [1]
+    assert {r.reason for r in rejected} == {Reason.MOVED_TOO_LITTLE}
+
+
+def test_a_meteor_that_breaks_up_is_one_meteor():
+    # The main piece and two fragments trailing it along the same path, at the same time.
+    pieces = [make_track(i, line(600 - 40 * i, 400 - 16 * i, 20, 8, 12), start=100) for i in range(3)]
+    meteors, rejected = find_meteors(make_scan(*pieces))
+    assert len(meteors) == 1
+    assert [r.reason for r in rejected] == [Reason.METEOR_FRAGMENT, Reason.METEOR_FRAGMENT]
+
+
+@pytest.mark.parametrize(
+    "tracks",
+    [
+        [make_track(1, line(200, 200, 20, 8, 12), start=100), make_track(2, line(1400, 300, -20, 9, 12), start=100)],
+        [make_track(1, line(600, 400, 20, 8, 12), start=100), make_track(2, line(600, 470, 20, 8, 12), start=100)],
+        [make_track(1, line(600, 300, 20, 10, 12), start=100), make_track(2, line(840, 300, -20, 10, 12), start=100)],
+    ],
+    ids=["far apart", "side by side", "crossing"],
+)
+def test_two_meteors_at_once_are_two_meteors(tracks):
+    meteors, rejected = find_meteors(make_scan(*tracks))
+    assert len(meteors) == 2 and not rejected
 
 
 def test_tracks_in_other_scenes_do_not_count_against_a_meteor():
