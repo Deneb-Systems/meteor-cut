@@ -81,17 +81,18 @@ def radiant(meteors: list[Meteor], width: int, min_members: int = 5) -> Radiant 
     if len(lines) < min_members:
         return None
     keep = lines
-    point = None
-    for tolerance in (0.25, 0.12, 0.06):
+    for round_, tolerance in enumerate((0.25, 0.12, 0.06)):
         point = _fit(keep)
         if point is None:
             return None
-        # A meteor belongs if its line passes near the point and it flies away from it.
+        # A meteor belongs if its line passes near the point and, once the point has settled, it flies away from it.
         keep = [(p, d) for p, d in lines
-                if abs(_cross(d, point - p)) <= tolerance * width and np.dot(p - point, d) > 0]
-        if len(keep) < min_members:
+                if abs(_cross(d, point - p)) <= tolerance * width and (round_ == 0 or np.dot(p - point, d) > 0)]
+        if len(keep) < 2:
             return None
     point = _fit(keep)
+    if len(keep) < min_members:
+        return None
     if point is None or np.linalg.norm(point - np.array([width / 2, 0])) > 4 * width:
         return None
     spread = math.sqrt(sum(_cross(d, point - p) ** 2 for p, d in keep) / len(keep))

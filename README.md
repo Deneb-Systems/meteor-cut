@@ -2,7 +2,9 @@
 
 Give it a night-sky video from a camera on a tripod. Meteor Cut finds every meteor, cuts a highlight video with only
 the moments that have one, and measures how fast each one crossed the sky. Every meteor gets a box, its trail and its
-speed; a panel on the right lists them all, fastest first. The numbers also go into CSV files.
+speed; a panel on the right lists them all, fastest first. It also picks out satellites and planes, draws every
+trajectory of the night on one picture with the shower's radiant, and makes a heat map of where meteors appeared.
+The numbers go into CSV files.
 
 Meteors are found and followed with [Sky Tracker](https://sky-tracker.deneb-systems.com)'s `MotionTracker`, which
 spots what got brighter since the previous frame: the head of a meteor rather than the trail it leaves.
@@ -41,11 +43,28 @@ Results go to `night-meteors/` beside the video (`-o` to choose):
 
 | File | What is in it |
 |---|---|
-| `meteors.mp4` | The highlight video, 1920x1080 |
+| `meteors.mp4` | The highlight video, 1920x1080, ending on the two images below |
+| `trajectories.png` | Every trajectory on one picture: meteors coloured by speed, satellites and planes, and the radiant |
+| `heatmap.png` | Where in the frame the meteors appeared |
+| `satellites_planes.csv` | One row per satellite or plane |
 | `meteors.csv` | One row per meteor: time, position, length, direction, speed, rank by speed |
-| `meteor_points.csv` | Every tracked position of every meteor, frame by frame |
+| `meteor_points.csv` | Every tracked position of every meteor, satellite and plane, frame by frame |
 | `rejected.csv` | Moving things that were not meteors, and why |
 | `summary.json` | Totals, rates, the camera and the settings used |
+
+## Satellites, planes and the radiant
+
+Satellites and planes move too slowly to stand out from one frame to the next, so a second tracker looks at about
+five frames a second. Slow, straight and long tracks are satellites when they are one steady point, and planes when
+they blink, drop out, or travel as several lights together. That split is a rule of thumb: a flaring satellite can pass
+for a plane. They are always in the CSV and on the trajectories picture; to put them in the video too, use
+`--show all` (or `--show meteors,satellites`).
+
+Meteors of a shower all fly away from one point in the sky, the radiant. With a normal (rectilinear) lens their paths
+are straight lines in the picture, so Meteor Cut finds the point they trace back to, leaving out sporadic meteors from
+other directions. It is often outside the frame.
+
+Past trails stay faintly on screen while the video plays; `--no-trails` turns that off.
 
 ## Speeds
 

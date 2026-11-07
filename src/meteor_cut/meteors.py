@@ -200,9 +200,10 @@ def _speed_ok(m: Meteor) -> float:
 
 
 def _overlaps(track: Track, meteors: list[Meteor], radius: float) -> bool:
+    """The slow tracker's view of a meteor: no longer than the meteor plus a second, and in the same place."""
     pts = track.detections
     for m in meteors:
-        if m.scene == track.scene and pts[0].frame <= m.end_frame and pts[-1].frame >= m.start_frame:
+        if m.scene == track.scene and pts[0].frame >= m.start_frame - m.fps and pts[-1].frame <= m.end_frame + m.fps:
             if any(math.dist((p.cx, p.cy), m.start) <= radius or math.dist((p.cx, p.cy), m.end) <= radius
                    for p in pts):
                 return True
@@ -231,14 +232,14 @@ def find_slow_objects(scan: Scan, meteors: list[Meteor], camera: Camera | None =
         reason = None
         if len(pts) < rules.slow_min_detections or duration < rules.slow_min_duration_s:
             reason = "slow and brief"
+        elif _overlaps(track, meteors, rules.hotspot_radius * width):
+            reason = "part of a meteor"
         elif length < rules.slow_min_length * width:
             reason = "slow and moved too little"
         elif not rules.slow_min_speed * width <= length / duration <= rules.slow_max_speed * width:
             reason = "slow object out of the satellite and plane speed range"
         elif (length / path if path else 0) < rules.slow_min_straightness or _line_error(pts) > 0.06 * length:
             reason = "slow and not a straight line"
-        elif _overlaps(track, meteors, rules.hotspot_radius * width):
-            reason = "part of a meteor"
         if reason:
             rejected.append(Rejected(track.id, track.scene, first, last, reason))
         else:

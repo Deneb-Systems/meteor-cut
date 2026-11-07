@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from meteor_cut.meteors import Rules, find_meteors
+from meteor_cut.meteors import Rules, find_meteors, find_slow_objects
 from meteor_cut.optics import Camera, angle_deg, meteor_speed, parse_sensor, slant_range_km
 from meteor_cut.render import Style, clips
 from meteor_cut.scan import Point, Scan, Track
@@ -142,3 +142,67 @@ def test_upload_page_checks_its_input(tmp_path):
                       content_type="multipart/form-data")
     assert bad.status_code == 400 and "lens" in bad.get_json()["error"]
     assert client.get("/jobs/nope").status_code == 404
+
+
+# ── satellites, planes, radiant, options ──────────────────────────────────────
+
+def slow_track(track_id, x0, y0, dx, dy, n, start=0, step=5, peaks=None):
+    """A slow-tracker track: one detection every `step` frames."""
+    points = [Point(start + i * step, x0 + dx * i, y0 + dy * i, 5, 5, True, (peaks or [200] * n)[i]) for i in range(n)]
+    return Track(SLOW_ID + track_id, 0, points, slow=True)
+
+
+SLOW_ID = 10_000_000
+
+
+def test_a_steady_slow_light_is_a_satellite_and_a_blinking_one_a_plane():
+    satellite = slow_track(1, 200, 300, 6, 2, 40, start=100)
+    plane = slow_track(2, 900, 700, -5, -3, 40, start=100, peaks=[230 if i % 3 else 60 for i in range(40)])
+    s = scan_of()
+    s.slow_tracks = [satellite, plane]
+    objects, rejected = find_slow_objects(s, [])
+    kinds = {o.label: o.kind for o in objects}
+    assert kinds == {"S1": "satellite", "P1": "plane"} and not rejected
+
+
+def test_slow_tracks_that_wander_or_belong_to_a_meteor_are_not_satellites():
+    s = scan_of(track(1, line(400, 200, 20, 12, 10), start=100))
+    wander = slow_track(1, 200, 300, 6, 0, 40, start=500)
+    for i, p in enumerate(wander.points):
+        p.cy += 40 if i % 2 else 0
+    echo = slow_track(2, 400, 200, 20, 12, 8, start=100, step=2)
+    s.slow_tracks = [wander, echo]
+    meteors, _ = find_meteors(s)
+    objects, rejected = find_slow_objects(s, meteors, rules=Rules(slow_min_duration_s=0.3))
+    assert not objects
+    assert {r.reason for r in rejected} == {"slow and not a straight line", "part of a meteor"}
+
+
+def test_the_radiant_is_where_shower_meteors_come_from():
+    from meteor_cut.images import radiant
+    from meteor_cut.meteors import Meteor
+    origin = (900.0, 100.0)
+    meteors = []
+    for i, angle in enumerate(range(20, 170, 25)):
+        a = math.radians(angle)
+        start = (origin[0] + 200 * math.cos(a), origin[1] + 200 * math.sin(a))
+        pts = [Point(i * 50 + k, start[0] + 15 * k * math.cos(a), start[1] + 15 * k * math.sin(a), 5, 5, True)
+               for k in range(8)]
+        meteors.append(Meteor(i, 0, pts, pts[0].frame, pts[-1].frame, FPS, 1.0))
+    # A sporadic meteor flying across, not from the radiant.
+    pts = [Point(900 + k, 100 + 20 * k, 900, 5, 5, True) for k in range(8)]
+    meteors.append(Meteor(99, 0, pts, 900, 907, FPS, 1.0))
+    found = radiant(meteors, 1920)
+    assert found is not None and found.members == 6
+    assert math.dist((found.x, found.y), origin) < 2
+
+
+def test_show_option_and_long_clock():
+    from meteor_cut.pipeline import parse_show
+    from meteor_cut.render import _clock
+    assert parse_show("meteors") == ("meteor",)
+    assert parse_show("satellites, planes") == ("satellite", "plane")
+    assert parse_show("all") == ("meteor", "satellite", "plane")
+    with pytest.raises(ValueError):
+        parse_show("ufos")
+    assert _clock(75.25) == "01:15.2" and _clock(4 * 3600 + 62) == "4:01:02"
