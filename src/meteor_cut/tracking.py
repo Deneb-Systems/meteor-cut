@@ -61,9 +61,11 @@ def sky_tracker_factory(**options: Any) -> MotionTracker:
         raise
     except RuntimeError as error:
         if "licen" in str(error).lower():
+            # Since 1.2.0 the bright-diff mode Meteor Cut uses is free; other modes need a key.
             raise SkyTrackerError(
-                f"Sky Tracker needs a licence key ({error}). Get a free 7-day trial key at {TRIAL_URL} "
-                "and set SKY_TRACKER_LICENSE_KEY to it."
+                f"Sky Tracker needs a licence key for this mode ({error}). Meteor Cut's own bright-diff mode needs "
+                f"none with sky-tracker-sdk {MIN_SDK} or later; for the others, a free 7-day trial key is at "
+                f"{TRIAL_URL}."
             ) from None
         raise
     return tracker

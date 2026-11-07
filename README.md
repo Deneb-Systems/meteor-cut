@@ -22,12 +22,8 @@ for what got brighter since the previous frame: the head of a meteor rather than
 pip install meteor-cut
 ```
 
-Meteor Cut needs Python 3.10 or later and a Sky Tracker licence key. A free 7-day trial key is one short form away at
-[sky-tracker.deneb-systems.com/trial](https://sky-tracker.deneb-systems.com/trial/); then set it in your shell:
-
-```bash
-export SKY_TRACKER_LICENSE_KEY=SKT2....        # Windows PowerShell: $env:SKY_TRACKER_LICENSE_KEY = "SKT2...."
-```
+Meteor Cut needs Python 3.10 or later. It installs the [Sky Tracker SDK](https://sky-tracker.deneb-systems.com), whose
+motion tracker it uses in the mode that is free: no licence key or sign-up needed.
 
 ## Quick start
 

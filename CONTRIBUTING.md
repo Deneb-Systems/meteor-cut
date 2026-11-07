@@ -17,7 +17,7 @@ pre-commit install
 
 The tests do not need Sky Tracker or a licence key: `tests/conftest.py` has a stand-in tracker that finds bright blobs,
 and a small synthetic night video with a meteor, a satellite and a scene cut. To run Meteor Cut on real videos you
-need the SDK and a key (a free trial key works).
+need the SDK (no key: Meteor Cut uses its free mode).
 
 ## Checks
 
