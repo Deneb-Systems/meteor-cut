@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 
 from .model import Kind, Scan, SkyObject
 from .radiant import Radiant
-from .text import font, speed_text
+from .text import Timeline, font, length_text, magnitude_text, speed_text
 
 KIND_RGB = {Kind.METEOR: (131, 232, 250), Kind.SATELLITE: (120, 230, 140), Kind.PLANE: (255, 170, 80)}
 TEXT = (235, 240, 242)
@@ -104,7 +104,9 @@ def _arrow(draw: ImageDraw.ImageDraw, obj: SkyObject, colour: tuple[int, int, in
     )
 
 
-def trajectories(scan: Scan, meteors: Sequence[SkyObject], radiant: Radiant | None) -> np.ndarray:
+def trajectories(
+    scan: Scan, meteors: Sequence[SkyObject], radiant: Radiant | None, radiant_note: str = ""
+) -> np.ndarray:
     """Every meteor of the busiest scene on one picture, coloured by speed, with the radiant they trace back to."""
     scene = busiest_scene(meteors)
     base = (background(scan, scene).astype(np.float32) * 0.55).astype(np.uint8)
@@ -135,7 +137,7 @@ def trajectories(scan: Scan, meteors: Sequence[SkyObject], radiant: Radiant | No
         lines[0] += f" ({speed_text(slowest)[0]} to {speed_text(fastest)[0]})"
     if radiant:
         where = "in the frame" if radiant.in_frame(scan.width, scan.height) else "outside the frame"
-        lines.append(f"{radiant.members} of them trace back to one radiant, {where} (faint lines)")
+        lines.append(f"{radiant.members} of them trace back to one radiant, {where} (faint lines){radiant_note}")
     _caption(image, "Every meteor" + (f" · scene {scene + 1}" if scan.cuts else ""), lines)
     return _to_bgr(image)
 
@@ -169,4 +171,32 @@ def satellites_and_planes(scan: Scan, others: Sequence[SkyObject], label_limit: 
         "Satellites and planes" + (f" · scene {scene + 1}" if scan.cuts else ""),
         [f"{len(satellites)} satellites (green), {len(planes)} planes (orange){rate}"],
     )
+    return _to_bgr(image)
+
+
+def top_five(meteors: Sequence[SkyObject], timeline: Timeline, width: int = 1920, height: int = 1080) -> np.ndarray:
+    """A card with the five longest trails and the five brightest meteors."""
+    from .enrich import top
+
+    image = Image.new("RGB", (width, height), CAPTION_BG)
+    draw = ImageDraw.Draw(image)
+    unit = width / 1920
+    draw.text((96 * unit, 80 * unit), "Top meteors of the night", font=font(round(56 * unit), bold=True), fill=TEXT)
+    columns = [
+        ("Longest trails", top(meteors, "length"), length_text),
+        ("Brightest", top(meteors, "brightness"), lambda m: magnitude_text(m) or "brightness measured"),
+    ]
+    for c, (title, chosen, value) in enumerate(columns):
+        x = (96 + c * 880) * unit
+        draw.text((x, 220 * unit), title, font=font(round(40 * unit), bold=True), fill=KIND_RGB[Kind.METEOR])
+        if not chosen:
+            draw.text((x, 300 * unit), "not measured", font=font(round(30 * unit)), fill=MUTED)
+        for i, m in enumerate(chosen):
+            y = (300 + i * 120) * unit
+            draw.text((x, y), f"{i + 1}", font=font(round(48 * unit), bold=True), fill=TEXT)
+            draw.text((x + 80 * unit, y), f"{m.label}  {value(m)}", font=font(round(38 * unit), bold=True), fill=TEXT)
+            details = [timeline.label(m.start_s), speed_text(m)[0]]
+            if m.shower_code and m.shower_code != "SPO" and m.shower:
+                details.append(m.shower.shower.name)
+            draw.text((x + 80 * unit, y + 52 * unit), "  ·  ".join(details), font=font(round(28 * unit)), fill=MUTED)
     return _to_bgr(image)

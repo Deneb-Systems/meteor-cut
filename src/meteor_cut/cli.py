@@ -13,9 +13,10 @@ from . import __version__
 from .classify import Rules
 from .errors import MeteorCutError
 from .optics import SENSORS
-from .pipeline import Lens, Result, parse_show, process
+from .pipeline import Lens, Observation, Result, parse_show, process
 from .render import Style
-from .text import duration_text, time_left_s
+from .sky import Site, parse_start
+from .text import duration_text, length_text, speed_text, time_left_s
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE = 0, 1, 2
 
@@ -30,9 +31,21 @@ def _region(value: str) -> tuple[int, int, int, int]:
     return x, y, w, h
 
 
-def _process_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("video", type=Path, help="the video file")
-    parser.add_argument("-o", "--out", type=Path, help="output folder (default: <video name>-meteors beside it)")
+def _site(value: str) -> Site:
+    try:
+        return Site.parse(value)
+    except MeteorCutError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
+
+
+def _start(value: str) -> object:
+    try:
+        return parse_start(value)
+    except MeteorCutError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
+
+
+def _lens_arguments(parser: argparse.ArgumentParser) -> None:
     lens = parser.add_argument_group("camera (for speeds in degrees per second, and km/s)")
     lens.add_argument("--focal", type=float, metavar="MM", help="lens focal length in mm, for example 14")
     lens.add_argument(
@@ -48,6 +61,36 @@ def _process_parser(parser: argparse.ArgumentParser) -> None:
     lens.add_argument("--roll", type=float, default=0.0, metavar="DEG", help="camera roll (default 0)")
     lens.add_argument(
         "--altitude", type=float, default=95.0, metavar="KM", help="height meteors burn at, for km/s (default 95)"
+    )
+
+
+def _process_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("video", type=Path, help="the video file")
+    parser.add_argument("-o", "--out", type=Path, help="output folder (default: <video name>-meteors beside it)")
+    _lens_arguments(parser)
+    night = parser.add_argument_group("time, place and stars (for showers, magnitudes and exact speeds)")
+    night.add_argument(
+        "--start",
+        type=_start,
+        metavar="TIME",
+        help="when the video started, such as 2026-08-12T22:30+02:00 (default: the file's creation time, if any)",
+    )
+    night.add_argument("--no-file-time", action="store_true", help="do not use the file's creation time")
+    night.add_argument("--site", type=_site, metavar="LAT,LON", help="where the camera stood, such as 50.45,30.52")
+    night.add_argument(
+        "--solve", action="store_true", help="identify the stars with astrometry.net's solve-field (if installed)"
+    )
+    night.add_argument(
+        "--wcs",
+        type=Path,
+        metavar="FILE",
+        help="a plate solution (wcs.fits) of sky-frame.png from nova.astrometry.net, instead of --solve",
+    )
+    night.add_argument(
+        "--wcs-at",
+        type=float,
+        metavar="S",
+        help="seconds into the video of the frame the --wcs solution is for (default: the middle, as sky-frame.png)",
     )
     find = parser.add_argument_group("what to find")
     find.add_argument(
@@ -79,6 +122,28 @@ def _process_parser(parser: argparse.ArgumentParser) -> None:
     )
     video.add_argument("--no-trails", action="store_true", help="do not keep past trails faintly on screen")
     video.add_argument("--no-video", action="store_true", help="write only the images and tables")
+    video.add_argument(
+        "--shorts",
+        type=int,
+        default=5,
+        metavar="N",
+        help="vertical 9:16 clips of the N best meteors (default 5, 0 for none)",
+    )
+    video.add_argument("--no-composite", action="store_true", help="skip the picture of every meteor on one sky")
+
+
+def _watch_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("source", help="camera number (0 = first camera), stream URL (rtsp://...) or a video file")
+    parser.add_argument("-o", "--out", type=Path, required=True, help="folder for the clips and tables")
+    parser.add_argument("--minutes", type=float, metavar="M", help="stop after M minutes (default: until Ctrl+C)")
+    parser.add_argument("--sky", type=_region, metavar="X,Y,W,H", help="look only in this part of the frame")
+    _lens_arguments(parser)
+
+
+def _sky_frame_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("video", type=Path, help="the video file")
+    parser.add_argument("-o", "--out", type=Path, default=Path("sky-frame.png"), help="picture to write")
+    parser.add_argument("--at", type=float, metavar="S", help="seconds into the video (default: the middle)")
 
 
 def _serve_parser(parser: argparse.ArgumentParser) -> None:
@@ -101,6 +166,11 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
     _process_parser(commands.add_parser("process", help="process a video (the default command)"))
     _serve_parser(commands.add_parser("serve", help="start the upload page on this computer"))
+    _watch_parser(commands.add_parser("watch", help="watch a camera live and keep only the meteors"))
+    _sky_frame_parser(
+        commands.add_parser("sky-frame", help="a clean star picture of a video, to plate-solve at nova.astrometry.net")
+    )
+    commands.add_parser("star-index", help="download the star index files solve-field needs for wide fields (1.6 MB)")
     return parser
 
 
@@ -145,9 +215,22 @@ def _print_result(result: Result, seconds: float) -> None:
         r = s["radiant"]
         where = "" if r["in_frame"] else " (outside the frame)"
         print(f"Radiant: {r['meteors']} meteors trace back to x={r['x_px']:.0f}, y={r['y_px']:.0f}{where}.")
+    sky = s.get("sky")
+    if sky:
+        print(f"Stars identified: {sky['field_deg'][0]:.1f} x {sky['field_deg'][1]:.1f} degrees of sky.")
+        if sky["radiant_ra_dec_deg"]:
+            ra, dec = sky["radiant_ra_dec_deg"]
+            named = f" ({sky['radiant_shower']})" if sky["radiant_shower"] else ""
+            print(f"Radiant among the stars: RA {ra:.1f}, Dec {dec:+.1f}{named}.")
+    if s.get("showers"):
+        print("Showers: " + ", ".join(f"{n} {code}" for code, n in s["showers"].items()) + ".")
+    if s.get("fireballs"):
+        print(f"Fireballs: {', '.join(s['fireballs'])}.")
+    if s.get("top_longest"):
+        print(f"Longest trails: {', '.join(s['top_longest'])}; brightest: {', '.join(s['top_brightest']) or '-'}.")
     print(f"Results in {result.out_dir}:")
     for path in result.files:
-        print(f"  {path.name}")
+        print(f"  {path.relative_to(result.out_dir)}")
 
 
 def _process(args: argparse.Namespace) -> int:
@@ -158,16 +241,17 @@ def _process(args: argparse.Namespace) -> int:
     progress = _Progress(enabled=not args.quiet)
     started = time.monotonic()
     try:
-        lens = Lens(
-            focal_mm=args.focal,
-            sensor=args.sensor,
-            hfov_deg=args.fov,
-            tilt_deg=args.tilt,
-            roll_deg=args.roll,
-            altitude_km=args.altitude,
-        )
+        lens = _lens(args)
         style = Style(show=parse_show(args.show), trails=not args.no_trails)
         rules = Rules(min_speed=args.min_speed, max_duration_s=args.max_duration)
+        observation = Observation(
+            start=args.start,
+            site=args.site,
+            wcs=args.wcs,
+            wcs_at_s=args.wcs_at,
+            solve=args.solve,
+            use_file_time=not args.no_file_time,
+        )
         result = process(
             args.video,
             out,
@@ -176,6 +260,9 @@ def _process(args: argparse.Namespace) -> int:
             style=style,
             sky_region=args.sky,
             make_video=not args.no_video,
+            observation=observation,
+            composite=not args.no_composite,
+            shorts=max(0, args.shorts),
             progress=progress,
         )
     except MeteorCutError as error:
@@ -185,6 +272,87 @@ def _process(args: argparse.Namespace) -> int:
     progress.close()
     if not args.quiet:
         _print_result(result, time.monotonic() - started)
+    return EXIT_OK
+
+
+def _lens(args: argparse.Namespace) -> Lens:
+    return Lens(
+        focal_mm=args.focal,
+        sensor=args.sensor,
+        hfov_deg=args.fov,
+        tilt_deg=args.tilt,
+        roll_deg=args.roll,
+        altitude_km=args.altitude,
+    )
+
+
+def _watch(args: argparse.Namespace) -> int:
+    import threading
+
+    from .live import LiveMeteor, Watcher
+
+    stop = threading.Event()
+
+    def announce(found: LiveMeteor) -> None:
+        if not args.quiet:
+            m = found.meteor
+            saved = f", saved {found.clip.name}" if found.clip else ""
+            print(f"{found.time:%H:%M:%S}  meteor {m.number}: {speed_text(m)[0]}, {length_text(m)}{saved}")
+
+    try:
+        lens = _lens(args)
+        watcher = Watcher(
+            args.source,
+            args.out,
+            camera_lens=lens.camera,
+            altitude_km=args.altitude,
+            sky_region=args.sky,
+            on_meteor=announce,
+        )
+        if not args.quiet:
+            print(f"Watching {args.source}; press Ctrl+C to stop.", file=sys.stderr)
+        try:
+            result = watcher.run(stop=stop, max_seconds=args.minutes * 60 if args.minutes else None)
+        except KeyboardInterrupt:  # pragma: no cover - interactive
+            stop.set()
+            return EXIT_OK
+    except MeteorCutError as error:
+        print(f"meteor-cut: {error}", file=sys.stderr)
+        return EXIT_ERROR
+    if not args.quiet:
+        print(f"{len(result.meteors)} meteors in {result.frames} frames. Results in {result.out_dir}.")
+    return EXIT_OK
+
+
+def _sky_frame(args: argparse.Namespace) -> int:
+    import cv2
+
+    from .scan import probe
+    from .sky import sky_frame
+
+    try:
+        info = probe(args.video)
+        at = args.at if args.at is not None else info.frames / info.fps / 2
+        cv2.imwrite(str(args.out), sky_frame(args.video, at))
+    except MeteorCutError as error:
+        print(f"meteor-cut: {error}", file=sys.stderr)
+        return EXIT_ERROR
+    print(f"Wrote {args.out} ({at:.1f} s into the video). Upload it at https://nova.astrometry.net/upload, download")
+    print(f"wcs.fits from the result page, and run: meteor-cut {args.video} --wcs wcs.fits --wcs-at {at:.1f}")
+    return EXIT_OK
+
+
+def _star_index(_: argparse.Namespace) -> int:
+    from .sky import download_indexes, find_solver
+
+    try:
+        folder = download_indexes()
+    except OSError as error:
+        print(f"meteor-cut: could not download the index files: {error}", file=sys.stderr)
+        return EXIT_ERROR
+    print(f"Star index files in {folder}.")
+    if find_solver() is None:
+        print("solve-field is not installed yet: brew install astrometry-net (macOS) or apt install astrometry.net.")
     return EXIT_OK
 
 
@@ -201,7 +369,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     at = 0
     while at < len(argv) and argv[at] in ("-v", "--verbose", "-q", "--quiet"):
         at += 1
-    if at < len(argv) and argv[at] not in ("process", "serve", "-h", "--help", "--version"):
+    if at < len(argv) and argv[at] not in (*_COMMANDS, "-h", "--help", "--version"):
         argv.insert(at, "process")
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -211,7 +379,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s"
     )
-    return int(_process(args) if args.command == "process" else _serve(args))
+    return int(_COMMANDS[args.command](args))
+
+
+_COMMANDS = {
+    "process": _process,
+    "serve": _serve,
+    "watch": _watch,
+    "sky-frame": _sky_frame,
+    "star-index": _star_index,
+}
 
 
 if __name__ == "__main__":

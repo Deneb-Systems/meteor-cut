@@ -21,6 +21,9 @@ def test_process_writes_every_output(night_video, fake_tracker, tmp_path):
     assert names == {
         "report.html",
         "meteors.mp4",
+        "composite.png",
+        "top.png",
+        "01-meteor-1.mp4",
         "trajectories.png",
         "satellites.png",
         "heatmap.png",
@@ -89,8 +92,8 @@ def test_the_html_report_is_self_contained(night_video, fake_tracker, tmp_path):
     )
     page = (tmp_path / "report.html").read_text()
     assert '<table id="meteors"' in page and "#1" in page and "S1" in page
-    assert page.count("data:image/jpeg;base64,") == 3  # meteors, satellites and planes, heat map
-    assert "<video" not in page  # no video was made
+    assert page.count("data:image/jpeg;base64,") == 4  # composite, meteors, satellites and planes, heat map
+    assert "meteors.mp4" not in page  # no highlight video was made
     # Nothing is fetched from anywhere: links are fine, external images, fonts or scripts are not.
     assert 'src="http' not in page and "url(http" not in page and "url('http" not in page
     assert "Deneb Systems" in page and "<svg" in page  # the by-line and the inline logo

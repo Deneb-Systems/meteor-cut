@@ -135,3 +135,43 @@ def night_video(tmp_path_factory: pytest.TempPathFactory) -> NightVideo:
         writer.write(frame)
     writer.release()
     return NightVideo(path, fps, width, height, frames, (25, 35), cut)
+
+
+# ── a plate solution ──────────────────────────────────────────────────────────
+
+
+def tan_header(
+    ra: float = 45.0, dec: float = 50.0, width: int = 1920, height: int = 1080, fov_deg: float = 53.0
+) -> dict[str, str | float | bool]:
+    """A plain gnomonic plate solution: north up, east left (as the sky looks), `fov_deg` across."""
+    scale = fov_deg / width
+    return {
+        "CTYPE1": "RA---TAN",
+        "CTYPE2": "DEC--TAN",
+        "CRPIX1": (width + 1) / 2,
+        "CRPIX2": (height + 1) / 2,
+        "CRVAL1": ra,
+        "CRVAL2": dec,
+        "CD1_1": -scale,
+        "CD1_2": 0.0,
+        "CD2_1": 0.0,
+        "CD2_2": -scale,
+        "IMAGEW": float(width),
+        "IMAGEH": float(height),
+    }
+
+
+def write_fits_header(path: Path, cards: dict[str, str | float | bool]) -> Path:
+    lines = []
+    for key, value in {"SIMPLE": True, "BITPIX": 8.0, "NAXIS": 0.0, **cards}.items():
+        if isinstance(value, bool):
+            text = "T" if value else "F"
+        elif isinstance(value, str):
+            text = f"'{value}'"
+        else:
+            text = repr(float(value))
+        lines.append(f"{key:<8}= {text:>20}".ljust(80))
+    lines.append("END".ljust(80))
+    data = "".join(lines).encode("ascii")
+    path.write_bytes(data + b" " * (-len(data) % 2880))
+    return path

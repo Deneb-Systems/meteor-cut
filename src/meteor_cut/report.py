@@ -14,6 +14,7 @@ from .classify import Classification
 from .model import Rejection, Scan, SkyObject
 from .optics import Camera
 from .radiant import Radiant
+from .text import Timeline
 
 
 def _num(value: float | None, digits: int = 2) -> float | str:
@@ -51,12 +52,31 @@ METEOR_COLUMNS = (
     "elevation_end_deg",
     "range_km",
     "sky_speed_km_s",
+    "clock_time",
+    "length_rank",
+    "brightness_rank",
+    "peak_brightness",
+    "magnitude",
+    "saturated",
+    "fireball",
+    "shower",
+    "shower_offset_deg",
+    "start_ra_deg",
+    "start_dec_deg",
+    "end_ra_deg",
+    "end_dec_deg",
 )
 
 
-def write_meteors(path: Path, meteors: Sequence[SkyObject]) -> None:
+def write_meteors(path: Path, meteors: Sequence[SkyObject], timeline: Timeline | None = None) -> None:
+    timeline = timeline or Timeline()
+
     def row(m: SkyObject) -> list[Any]:
         mo = m.motion
+        b = m.brightness
+        sky = m.sky_path
+        start_rd = sky.start_ra_dec() if sky else (None, None)
+        end_rd = sky.end_ra_dec() if sky else (None, None)
         return [
             m.number,
             m.rank,
@@ -81,6 +101,19 @@ def write_meteors(path: Path, meteors: Sequence[SkyObject]) -> None:
             _num(mo.elevation_end_deg if mo else None, 1),
             _num(mo.range_km if mo else None, 0),
             _num(mo.sky_speed_km_s if mo else None, 1),
+            timeline.iso(m.start_s),
+            m.length_rank or "",
+            m.brightness_rank or "",
+            _num(b.peak if b else None, 4),
+            _num(b.magnitude if b else None, 1),
+            "" if b is None else int(b.saturated),
+            "" if b is None or b.magnitude is None else int(b.fireball),
+            m.shower_code,
+            _num(m.shower.offset_deg if m.shower else None, 2),
+            _num(start_rd[0], 3),
+            _num(start_rd[1], 3),
+            _num(end_rd[0], 3),
+            _num(end_rd[1], 3),
         ]
 
     _write(path, METEOR_COLUMNS, map(row, meteors))

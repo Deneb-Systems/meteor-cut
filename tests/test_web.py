@@ -32,6 +32,8 @@ def test_the_page_lists_the_sensors(client):
         ({"tilt": "30"}, "needs the lens"),
         ({"focal": "fourteen"}, "must be a number"),
         ({"show": "ufos"}, "show takes"),
+        ({"start": "yesterday"}, "start takes"),
+        ({"latitude": "50"}, "both latitude and longitude"),
     ],
 )
 def test_bad_requests_are_refused_before_processing(client, fake_tracker, data, error):

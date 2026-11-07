@@ -5,6 +5,27 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `composite.png`: every meteor of the night on one clean picture of the sky, lined up on the stars when the video is
+  plate-solved, as astrophotographers make by hand.
+- Vertical 9:16 clips of the best meteors in `shorts/` (`--shorts N`): a close-up over the whole frame, then a
+  quarter-speed replay.
+- Brightness of every meteor, and with a plate solution an approximate magnitude from the catalogued stars in the same
+  frames; fireballs (magnitude -4 or brighter) are flagged.
+- Top five longest trails and top five brightest meteors: `top.png`, the report, the video's closing cards,
+  `summary.json`, and `length_rank` / `brightness_rank` in `meteors.csv`.
+- Plate solving (`--solve` with astrometry.net's solve-field, or `--wcs` with a solution from nova.astrometry.net;
+  `meteor-cut sky-frame` and `meteor-cut star-index` help with both): exact angular speeds, sky coordinates, and the
+  radiant among the stars, which no longer smears as the sky turns through the night.
+- Each meteor's shower from the IAU Meteor Data Center's established showers, given the start time (`--start`, or the
+  file's creation time), and the night's radiant named after the closest shower.
+- `--site LAT,LON` for elevations and km/s from the stars, without a camera tilt.
+- Clock times in the video, tables and report when the start time is known.
+- `meteor-cut watch`: live mode for a camera, stream or file, saving each meteor's clip as it is confirmed.
+- The upload page takes the start time, the site, a plate solution or a request to solve, the composite and the
+  number of vertical clips, and shows the new results.
+
 ### Changed
 
 - The upload page and report match the Sky Tracker website: Manrope (bundled, works offline), large type, rounded

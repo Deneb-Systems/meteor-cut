@@ -25,8 +25,9 @@ from werkzeug.utils import secure_filename
 
 from ..errors import MeteorCutError
 from ..optics import SENSORS
-from ..pipeline import Lens, parse_show, process
+from ..pipeline import Lens, Observation, parse_show, process
 from ..render import Style
+from ..sky import Site, find_solver, parse_start
 from ..tracking import TrackerFactory, sky_tracker_factory
 
 log = logging.getLogger(__name__)
@@ -34,9 +35,12 @@ log = logging.getLogger(__name__)
 OUTPUTS = (
     "report.html",
     "meteors.mp4",
+    "composite.png",
+    "top.png",
     "trajectories.png",
     "satellites.png",
     "heatmap.png",
+    "sky-frame.png",
     "meteors.csv",
     "satellites_planes.csv",
     "meteor_points.csv",
@@ -59,6 +63,8 @@ class Job:
 
     def status(self) -> dict[str, Any]:
         files = [f for f in OUTPUTS if (self.folder / f).exists()] if self.done else []
+        if self.done and (self.folder / "shorts").is_dir():
+            files += sorted(f"shorts/{p.name}" for p in (self.folder / "shorts").glob("*.mp4"))
         return {
             "stage": self.stage,
             "fraction": self.fraction,
@@ -95,13 +101,13 @@ def create_app(
     lock = threading.Lock()
     worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="meteor-cut")  # one video at a time
 
-    def run(job: Job, video: Path, lens: Lens, style: Style) -> None:
+    def run(job: Job, video: Path, lens: Lens, style: Style, options: dict[str, Any]) -> None:
         def progress(stage: str, fraction: float) -> None:
             job.stage, job.fraction = stage, fraction
 
         try:
             job.summary = process(
-                video, job.folder, lens=lens, style=style, tracker_factory=tracker_factory, progress=progress
+                video, job.folder, lens=lens, style=style, tracker_factory=tracker_factory, progress=progress, **options
             ).summary
         except MeteorCutError as error:
             job.error = str(error)
@@ -121,7 +127,7 @@ def create_app(
 
     @app.get("/")
     def index() -> str:
-        return render_template("index.html", sensors=SENSORS)
+        return render_template("index.html", sensors=SENSORS, solver=find_solver() is not None)
 
     @app.post("/jobs")
     def start() -> Any:
@@ -144,10 +150,30 @@ def create_app(
             style = Style(
                 show=parse_show(request.form.getlist("show") or ["meteors"]), trails=request.form.get("trails") == "on"
             )
+            start_text = (request.form.get("start") or "").strip()
+            lat, lon = _number(request.form, "latitude"), _number(request.form, "longitude")
+            if (lat is None) != (lon is None):
+                raise MeteorCutError("give both latitude and longitude, or neither")
+            shorts = _number(request.form, "shorts")
+            options: dict[str, Any] = {
+                "composite": request.form.get("composite") == "on",
+                "shorts": max(0, min(20, int(shorts))) if shorts is not None else 5,
+            }
+            wcs_upload = request.files.get("wcs")
+            observation = Observation(
+                start=parse_start(start_text) if start_text else None,
+                site=Site(lat, lon) if lat is not None and lon is not None else None,
+                solve=request.form.get("solve") == "on" and not (wcs_upload and wcs_upload.filename),
+            )
         except MeteorCutError as error:
             return jsonify(error=str(error)), 400
         job = Job(uuid.uuid4().hex, root / uuid.uuid4().hex, Path(upload.filename).name)
         job.folder.mkdir(parents=True)
+        if wcs_upload and wcs_upload.filename:
+            wcs_path = job.folder / "upload-wcs.fits"
+            wcs_upload.save(wcs_path)
+            observation = Observation(start=observation.start, site=observation.site, wcs=wcs_path)
+        options["observation"] = observation
         # Keep the uploader's file name (made safe) so the report is titled with it, in a folder of its own so it can
         # never collide with an output such as meteors.mp4.
         (job.folder / "upload").mkdir()
@@ -155,17 +181,17 @@ def create_app(
         upload.save(video)
         with lock:
             jobs[job.id] = job
-        worker.submit(run, job, video, lens, style)
+        worker.submit(run, job, video, lens, style, options)
         return jsonify(id=job.id), 202
 
     @app.get("/jobs/<job_id>")
     def status(job_id: str) -> Any:
         return jsonify(get_job(job_id).status())
 
-    @app.get("/jobs/<job_id>/<name>")
+    @app.get("/jobs/<job_id>/<path:name>")
     def file(job_id: str, name: str) -> Any:
         job = get_job(job_id)
-        if name not in OUTPUTS:
+        if name not in OUTPUTS and not re.fullmatch(r"shorts/[\w.-]+\.mp4", name):
             abort(404)
         return send_from_directory(job.folder, name, as_attachment=request.args.get("download") == "1")
 

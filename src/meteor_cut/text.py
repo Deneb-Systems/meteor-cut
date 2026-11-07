@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from functools import lru_cache
 
 from PIL import ImageFont
@@ -67,3 +69,37 @@ def duration_text(seconds: float) -> str:
     if minutes < 60:
         return f"about {minutes} min"
     return f"about {minutes // 60} h {minutes % 60:02d} min"
+
+
+@dataclass(frozen=True)
+class Timeline:
+    """Turns seconds into the video into times people read: the clock time when the start is known."""
+
+    start: datetime | None = None
+    long: bool = False  # a video of an hour or more: source times always with hours
+
+    def at(self, seconds: float) -> datetime | None:
+        return self.start + timedelta(seconds=seconds) if self.start else None
+
+    def label(self, seconds: float) -> str:
+        """22:41:07 with a start time, else the time into the video."""
+        when = self.at(seconds)
+        return when.strftime("%H:%M:%S") if when else clock(seconds, hours_always=self.long)
+
+    def iso(self, seconds: float) -> str:
+        when = self.at(seconds)
+        return when.isoformat(timespec="milliseconds") if when else ""
+
+
+def magnitude_text(obj: SkyObject) -> str:
+    """'mag -2.4', '≤ mag -4.1' when the sensor clipped, or ''."""
+    b = obj.brightness
+    if b is None or b.magnitude is None:
+        return ""
+    return f"{'≤ ' if b.saturated else ''}mag {b.magnitude:.1f}"
+
+
+def length_text(obj: SkyObject) -> str:
+    if obj.motion and math.isfinite(obj.motion.angular_length_deg):
+        return f"{obj.motion.angular_length_deg:.1f}°"
+    return f"{obj.length_px:.0f} px"

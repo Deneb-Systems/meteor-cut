@@ -13,7 +13,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .astro import ra_dec
 from .model import SkyObject
+from .showers import SkyPath
 
 # Tolerances, as fractions of the frame width, for each round of the fit.
 _ROUNDS = (0.25, 0.12, 0.06)
@@ -83,3 +85,54 @@ def find_radiant(meteors: Sequence[SkyObject], width: int, min_members: int = 5)
     kept = {id(line) for line in keep}
     numbers = tuple(n for n, line in zip(owners, lines, strict=True) if id(line) in kept)
     return Radiant(float(point[0]), float(point[1]), len(keep), spread, numbers)
+
+
+# Tolerances in degrees for each round of the fit on the sky.
+_SKY_ROUNDS = (15.0, 8.0, 4.0)
+
+
+@dataclass(frozen=True)
+class SkyRadiant:
+    ra_deg: float
+    dec_deg: float
+    members: int
+    spread_deg: float  # RMS distance of the members' great circles from the radiant
+    numbers: tuple[int, ...] = ()
+
+
+def find_sky_radiant(paths: Sequence[tuple[int, SkyPath]], min_members: int = 5) -> SkyRadiant | None:
+    """The radiant among the stars, from meteors' paths as great circles (numbered by meteor).
+
+    The point closest to every great circle is the eigenvector of the smallest eigenvalue of the sum of their poles'
+    outer products; of its two opposite directions the radiant is the one the meteors fly away from. Rounds of
+    tightening tolerance drop sporadic meteors, as in find_radiant.
+    """
+    usable = [(n, p) for n, p in paths if np.linalg.norm(np.cross(p.start, p.end)) > 1e-9]
+    if len(usable) < min_members:
+        return None
+
+    def fit(members: Sequence[tuple[int, SkyPath]]) -> np.ndarray:
+        poles = np.array([p.pole for _, p in members])
+        point = np.linalg.eigh(poles.T @ poles)[1][:, 0]
+        away = sum(1 for _, p in members if np.dot(p.end - p.start, point) < 0)
+        return point if away * 2 >= len(members) else -point
+
+    keep = usable
+    for round_, tolerance in enumerate(_SKY_ROUNDS):
+        if len(keep) < 2:
+            return None
+        point = fit(keep)
+        limit = math.sin(math.radians(tolerance))
+        keep = [
+            (n, p)
+            for n, p in usable
+            if abs(float(np.dot(p.pole, point))) <= limit and (round_ == 0 or np.dot(p.end - p.start, point) < 0)
+        ]
+    if len(keep) < min_members:
+        return None
+    point = fit(keep)
+    spread = math.degrees(
+        math.sqrt(sum(math.asin(min(1.0, abs(float(np.dot(p.pole, point))))) ** 2 for _, p in keep) / len(keep))
+    )
+    ra, dec = ra_dec(point)
+    return SkyRadiant(ra, dec, len(keep), spread, tuple(n for n, _ in keep))

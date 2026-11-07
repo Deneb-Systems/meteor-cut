@@ -19,8 +19,10 @@ import cv2
 import numpy as np
 
 from .classify import Classification
+from .enrich import top
 from .model import Scan, SkyObject
-from .text import clock
+from .showers import by_code
+from .text import Timeline, clock, length_text, magnitude_text, speed_text
 
 
 def _jpeg(image: np.ndarray, width: int = 1600) -> str:
@@ -59,6 +61,35 @@ def _describe_settings(settings: Mapping[str, Any]) -> str:
     return "; ".join(parts)
 
 
+def _describe_sky(s: Mapping[str, Any]) -> str:
+    """The camera's place among the stars and the clock, in words."""
+    parts = []
+    sky = s.get("sky")
+    if sky:
+        w, h = sky["field_deg"]
+        ra, dec = sky["centre_ra_dec_deg"]
+        parts.append(f"Plate-solved: {w:.1f}° x {h:.1f}° of sky centred on RA {ra:.1f}°, Dec {dec:+.1f}°")
+        if sky.get("radiant_ra_dec_deg"):
+            rra, rdec = sky["radiant_ra_dec_deg"]
+            named = by_code(sky["radiant_shower"]) if sky.get("radiant_shower") else None
+            parts.append(
+                f"radiant at RA {rra:.1f}°, Dec {rdec:+.1f}° from {sky['radiant_meteors']} meteors"
+                + (
+                    f" ({named.name}, {sky['radiant_shower_distance_deg']:.1f}° from the catalogue radiant)"
+                    if named
+                    else ""
+                )
+            )
+    if s.get("start_time"):
+        source = (
+            " (from the file's creation time; pass the start time if it is wrong)"
+            if s.get("start_time_from") == "file"
+            else ""
+        )
+        parts.append(f"recording started {s['start_time'][:19].replace('T', ' ')}{source}")
+    return "; ".join(parts) + ("." if parts else "")
+
+
 def _logo_svg() -> str:
     """The Deneb Systems logo, inline so the page stays one file."""
     svg = files("meteor_cut.web").joinpath("static/deneb-systems-logo.svg").read_text(encoding="utf-8")
@@ -94,32 +125,54 @@ def _table(table_id: str, headers: Sequence[str], rows: Sequence[Sequence[Any]])
     return f'<table id="{table_id}" class="sortable"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
 
 
-def _meteor_rows(meteors: Sequence[SkyObject], long: bool) -> list[list[Any]]:
+def _meteor_rows(meteors: Sequence[SkyObject], timeline: Timeline) -> list[list[Any]]:
     rows = []
     for m in meteors:
         mo = m.motion
+        b = m.brightness
         rows.append(
             [
                 m.label,
                 m.rank,
-                clock(m.start_s, hours_always=long),
+                timeline.label(m.start_s),
                 _num(m.duration_s, 2),
                 _num(m.speed_px_s, 0),
                 _num(mo.angular_speed_deg_s if mo else None),
                 _num(mo.sky_speed_km_s if mo else None, 0),
+                _num(mo.angular_length_deg if mo else None),
                 _num(m.length_px, 0),
+                _num(b.magnitude if b else None),
+                m.brightness_rank or "",
+                m.shower_code,
                 _num(m.direction_deg, 0),
             ]
         )
     return rows
 
 
-def _other_rows(others: Sequence[SkyObject], long: bool) -> list[list[Any]]:
+def _top_table(meteors: Sequence[SkyObject], by: str, timeline: Timeline) -> str:
+    chosen = top(meteors, by)
+    if not chosen:
+        return '<p class="lead">Not measured.</p>'
+    value = (
+        length_text
+        if by == "length"
+        else (lambda m: magnitude_text(m) or f"{m.brightness.peak:.3g}" if m.brightness else "")
+    )
+    rows = [
+        [f"{i}. {m.label}", value(m), timeline.label(m.start_s), speed_text(m)[0], m.shower_code]
+        for i, m in enumerate(chosen, 1)
+    ]
+    head = "Length" if by == "length" else "Brightness"
+    return _table(f"top-{by}", ["Meteor", head, "Time", "Speed", "Shower"], rows)
+
+
+def _other_rows(others: Sequence[SkyObject], timeline: Timeline) -> list[list[Any]]:
     return [
         [
             o.label,
             o.kind.value,
-            clock(o.start_s, hours_always=long),
+            timeline.label(o.start_s),
             _num(o.duration_s, 0),
             _num(o.speed_px_s, 1),
             _num(o.motion.angular_speed_deg_s if o.motion else None, 2),
@@ -136,7 +189,11 @@ def write_html_report(
     summary: Mapping[str, Any],
     images: Mapping[str, np.ndarray],
     video_name: str | None,
+    *,
+    timeline: Timeline | None = None,
+    shorts: Sequence[str] = (),
 ) -> None:
+    timeline = timeline or Timeline(None, scan.duration_s >= 3600)
     s = summary
     name = html.escape(Path(scan.path).name)
     cards = [
@@ -151,6 +208,11 @@ def write_html_report(
         cards.append((f"{fastest.speed_px_s:.0f} px/s", f"fastest ({fastest.label})"))
     if s["sky_speed_km_s"]:
         cards.append((f"≥{s['sky_speed_km_s']['mean']} km/s", "average across the view"))
+    for code, n in list((s.get("showers") or {}).items())[:3]:
+        shower = by_code(code)
+        cards.append((str(n), shower.name if shower else "sporadic" if code == "SPO" else code))
+    if s.get("fireballs"):
+        cards.append((str(len(s["fireballs"])), "fireballs (mag -4 or brighter)"))
     cards += [(str(s["satellites"]), "satellites"), (str(s["planes"]), "planes")]
     if s["radiant"]:
         r = s["radiant"]
@@ -162,6 +224,8 @@ def write_html_report(
     )
 
     pictures = {
+        "composite.png": "The night on one picture: every meteor"
+        + (", aligned on the stars" if s.get("sky") else ", where the camera saw it"),
         "trajectories.png": "Every meteor",
         "satellites.png": "Satellites and planes",
         "heatmap.png": "Heat map",
@@ -173,6 +237,10 @@ def write_html_report(
         if file in images
     )
     video = f'<video controls preload="metadata" src="{html.escape(video_name)}"></video>' if video_name else ""
+    short_html = "".join(
+        f'<video controls preload="metadata" playsinline src="{html.escape(name)}"></video>' for name in shorts
+    )
+    sky_line = _describe_sky(s)
     rejected = "".join(
         f"<li><b>{n}</b> {html.escape(r.reason.description)} <code>{html.escape(r.reason.value)}</code></li>"
         for r, n in sorted(
@@ -190,15 +258,36 @@ def write_html_report(
         chart=_per_hour_chart(found.meteors, scan.duration_s),
         video=video,
         figures=figures,
+        top_length=_top_table(found.meteors, "length", timeline),
+        top_brightness=_top_table(found.meteors, "brightness", timeline),
+        shorts=f'<h2>Vertical clips</h2><p class="lead">The best meteors in 9:16, for Shorts, Reels and TikTok. '
+        f'Each plays once at normal speed, then at a quarter speed.</p><div class="shorts">{short_html}</div>'
+        if short_html
+        else "",
+        sky_line=f'<p class="lead">{html.escape(sky_line)}</p>' if sky_line else "",
         meteors=_table(
             "meteors",
-            ["Meteor", "Speed rank", "Time", "Seconds", "px/s", "°/s", "km/s ≥", "Length px", "Direction °"],
-            _meteor_rows(found.meteors, scan.duration_s >= 3600),
+            [
+                "Meteor",
+                "Speed rank",
+                "Time",
+                "Seconds",
+                "px/s",
+                "°/s",
+                "km/s ≥",
+                "Length °",
+                "Length px",
+                "Mag",
+                "Brightness rank",
+                "Shower",
+                "Direction °",
+            ],
+            _meteor_rows(found.meteors, timeline),
         ),
         others=_table(
             "others",
             ["Object", "Kind", "Time", "Seconds", "px/s", "°/s", "Direction °"],
-            _other_rows(found.others, scan.duration_s >= 3600),
+            _other_rows(found.others, timeline),
         ),
         others_count=len(found.others),
         rejected=rejected or "<li>Nothing</li>",
@@ -264,6 +353,10 @@ TEMPLATE = """<!doctype html>
                  font-variant-numeric:tabular-nums }}
   code {{ margin-left:auto; color:var(--muted); font-size:.8125rem }}
   footer {{ margin-top:4rem; color:var(--muted); font-size:.875rem }}
+  h3 {{ margin:0 0 .75rem; color:var(--signal); font-size:1.125rem; font-weight:600 }}
+  .two {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(20rem,1fr)); gap:1.5rem }}
+  .shorts {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(12rem,1fr)); gap:1rem }}
+  .shorts video {{ aspect-ratio:9/16; border-radius:1rem }}
 </style></head><body><main>
 <header class="brand"><a href="https://deneb-systems.com" aria-label="Deneb Systems">{logo}</a>
 <span><b>Meteor Cut</b> <span>by <a href="https://deneb-systems.com">Deneb Systems</a></span></span></header>
@@ -273,9 +366,14 @@ TEMPLATE = """<!doctype html>
 <h2>Meteors per hour</h2>
 <div class="panel">{chart}</div>
 <h2>Highlights</h2>
+{sky_line}
 {video}
 <h2>Pictures</h2>
 {figures}
+<h2>Top meteors</h2>
+<div class="two"><div><h3>Longest trails</h3><div class="scroll">{top_length}</div></div>
+<div><h3>Brightest</h3><div class="scroll">{top_brightness}</div></div></div>
+{shorts}
 <h2>Meteors</h2>
 <p class="lead">Click a heading to sort. Speed rank 1 is the fastest.</p>
 <div class="scroll">{meteors}</div>

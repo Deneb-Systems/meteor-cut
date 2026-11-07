@@ -69,13 +69,21 @@
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: .875rem }
     label.field { display: block }
     label.field span { display: block; margin-bottom: .375rem; color: var(--muted); font-size: .875rem }
-    input[type=number], select { width: 100%; height: 2.875rem; padding: 0 .875rem; border: 0; border-radius: .875rem;
+    input[type=number], input[type=datetime-local], input[type=file].field-file, select { width: 100%; height: 2.875rem; padding: 0 .875rem; border: 0; border-radius: .875rem;
             background: var(--graphite-light); color: var(--silver-bright); font: 500 1rem var(--body);
             box-shadow: inset 0 0 0 1px var(--line); appearance: none }
     select { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
              linear-gradient(135deg, var(--muted) 50%, transparent 50%);
              background-position: calc(100% - 1.125rem) 1.25rem, calc(100% - .8125rem) 1.25rem;
              background-size: .3125rem .3125rem; background-repeat: no-repeat; padding-right: 2.25rem }
+    input[type=datetime-local] { color-scheme: dark }
+    input[type=datetime-local]::-webkit-calendar-picker-indicator { opacity: .6; cursor: pointer }
+    input[type=file].field-file { padding: .6875rem .875rem; font-size: .875rem; color: var(--muted); cursor: pointer }
+    input[type=file].field-file::file-selector-button { margin-right: .75rem; padding: .25rem .75rem; border: 0;
+      border-radius: 999px; background: var(--graphite); color: var(--silver-bright); font: 600 .8125rem var(--body);
+      box-shadow: inset 0 0 0 1px var(--line); cursor: pointer }
+    .grid + .chips { margin-top: .875rem }
+    .grid.narrow { grid-template-columns: repeat(auto-fit, minmax(10.5rem, 13rem)) }
     input:focus-visible, select:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--signal) }
     input::placeholder { color: var(--muted) }
 
@@ -126,6 +134,8 @@
     video { display: block; width: 100%; margin-top: 1.5rem; border-radius: 1.25rem; background: #000 }
     .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin-top: 1rem }
     .shots img { display: block; width: 100%; border-radius: 1.25rem }
+    .shorts { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .75rem; margin-top: 1.5rem }
+    .shorts video { aspect-ratio: 9 / 16; border-radius: 1rem; background: #000 }
     .files { display: flex; flex-wrap: wrap; gap: .625rem; margin-top: 1.75rem }
     footer { margin-top: 3rem; color: var(--muted); font-size: .875rem; text-align: center }
   </style>
@@ -168,12 +178,41 @@
     <p class="hint">Without the lens, speeds are on-screen pixels per second. The km/s figure is the part of the speed
       across your view, so the real speed is at least that.</p>
 
+    <p class="section-label">Time, place and stars <span class="hint" style="font-weight:400">· optional, for clock times, shower names and magnitudes</span></p>
+    <div class="grid">
+      <label class="field"><span>Video started at</span>
+        <input id="start" name="start" type="datetime-local" step="1"></label>
+      <label class="field"><span>Latitude (° north)</span>
+        <input id="latitude" name="latitude" type="number" step="0.0001" min="-90" max="90" placeholder="50.45"></label>
+      <label class="field"><span>Longitude (° east)</span>
+        <input id="longitude" name="longitude" type="number" step="0.0001" min="-180" max="180" placeholder="30.52"></label>
+      <label class="field"><span>Plate solution (wcs.fits)</span>
+        <input id="wcs" class="field-file" name="wcs" type="file" accept=".fits,.fit,.wcs"></label>
+    </div>
+    <div class="chips">
+      <label class="chip"><input type="checkbox" name="solve" value="on" {% if solver %}checked{% else %}disabled{% endif %}><span>Identify the stars</span></label>
+    </div>
+    <p class="hint">{% if solver %}Finds where the camera pointed among the stars, so meteors get shower names, magnitudes
+      and exact speeds, and the composite lines up on the stars. Needs a clear sky and a camera that did not move.
+      {% else %}To identify the stars here, install astrometry.net (<code>brew install astrometry-net</code>) and run
+      <code>meteor-cut star-index</code>. Or run <code>meteor-cut sky-frame VIDEO</code>, solve the picture at
+      nova.astrometry.net and choose its wcs.fits above.{% endif %}</p>
+
     <p class="section-label">In the video</p>
     <div class="chips">
       <label class="chip"><input type="checkbox" name="show" value="meteors" checked><span>Meteors</span></label>
       <label class="chip"><input type="checkbox" name="show" value="satellites"><span>Satellites</span></label>
       <label class="chip"><input type="checkbox" name="show" value="planes"><span>Planes</span></label>
       <label class="chip"><input type="checkbox" name="trails" value="on" checked><span>Keep past trails</span></label>
+    </div>
+
+    <p class="section-label">Extras</p>
+    <div class="chips">
+      <label class="chip"><input type="checkbox" name="composite" value="on" checked><span>Composite picture</span></label>
+    </div>
+    <div class="grid narrow" style="margin-top:1rem">
+      <label class="field"><span>Vertical clips (9:16)</span>
+        <input id="shorts" name="shorts" type="number" min="0" max="20" value="5"></label>
     </div>
 
     <div class="launch">
@@ -311,6 +350,9 @@
         ${m.meteors_per_hour ? stat(m.meteors_per_hour, 'per hour') : ''}
         ${a ? stat(`${a.max}°/s`, `fastest, ${m.fastest_meteor}`) : ''}
         ${k ? stat(`≥${k.mean}`, 'km/s on average') : ''}
+        ${Object.entries(m.showers || {}).sort((a, b) => b[1] - a[1]).slice(0, 2)
+          .map(([code, n]) => stat(n, (m.shower_names || {})[code] || code)).join('')}
+        ${(m.fireballs || []).length ? stat(m.fireballs.length, 'fireballs') : ''}
         ${stat(m.satellites, 'satellites')}
         ${stat(m.planes, 'planes')}
       </div>
@@ -319,9 +361,11 @@
       </div>
       ${s.files.includes('meteors.mp4') ? `<video controls preload="metadata" src="${file('meteors.mp4')}"></video>` : '<p class="hint">Nothing to show, so no video.</p>'}
       <div class="shots">
-        ${['trajectories.png', 'satellites.png', 'heatmap.png'].filter((f) => s.files.includes(f))
+        ${['composite.png', 'top.png', 'trajectories.png', 'satellites.png', 'heatmap.png'].filter((f) => s.files.includes(f))
           .map((f) => `<a href="${file(f)}" target="_blank" rel="noopener"><img src="${file(f)}" alt="${esc(f)}"></a>`).join('')}
       </div>
+      ${s.files.some((f) => f.startsWith('shorts/')) ? `<div class="shorts">${s.files.filter((f) => f.startsWith('shorts/'))
+        .map((f) => `<video controls preload="metadata" playsinline src="${file(f)}"></video>`).join('')}</div>` : ''}
       <div class="files">${s.files.map((f) => `<a class="pill quiet" href="${file(f)}?download=1">${esc(f)}</a>`).join('')}</div>`;
   }
   window.addEventListener('hashchange', resume);

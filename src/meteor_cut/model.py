@@ -11,6 +11,8 @@ if TYPE_CHECKING:
     import numpy as np
 
     from .optics import AngularMotion
+    from .photometry import Brightness
+    from .showers import Membership, SkyPath
 
 
 class VideoInfo(NamedTuple):
@@ -147,7 +149,12 @@ class SkyObject:
     straightness: float  # straight-line distance / path length
     number: int = 0  # in order of appearance, per kind
     rank: int = 0  # 1 = fastest, per kind
-    motion: AngularMotion | None = None  # set when the lens is known
+    length_rank: int = 0  # 1 = longest trail (meteors)
+    brightness_rank: int = 0  # 1 = brightest (meteors, when brightness was measured)
+    motion: AngularMotion | None = None  # set when the lens or the stars are known
+    sky_path: SkyPath | None = None  # start and end among the stars, when the video was plate-solved
+    shower: Membership | None = None  # the shower it belongs to; None is sporadic (or unknown without a date)
+    brightness: Brightness | None = None
     diagnostics: dict[str, float | bool] = field(default_factory=dict)
 
     @property
@@ -194,6 +201,20 @@ class SkyObject:
     def direction_deg(self) -> float:
         """Direction of travel on screen: 0 = right, 90 = up."""
         return math.degrees(math.atan2(self.start[1] - self.end[1], self.end[0] - self.start[0])) % 360
+
+    @property
+    def length_value(self) -> float:
+        """What trails are ranked by: angular length when known, else on-screen length."""
+        if self.motion and math.isfinite(self.motion.angular_length_deg):
+            return self.motion.angular_length_deg
+        return self.length_px
+
+    @property
+    def shower_code(self) -> str:
+        """Three-letter IAU code, SPO for sporadic, or "" when showers were not looked for."""
+        if self.shower is not None:
+            return self.shower.shower.code
+        return "SPO" if self.diagnostics.get("shower_checked") else ""
 
     @property
     def speed_value(self) -> float:

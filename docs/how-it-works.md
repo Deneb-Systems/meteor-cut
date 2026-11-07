@@ -1,14 +1,15 @@
 # How Meteor Cut works
 
-Meteor Cut reads the video twice. The first pass finds everything that moves; then each moving thing is classified;
-the second pass draws the highlight video. This page walks through each step, the numbers behind it, and its limits.
+Meteor Cut reads the whole video once to find everything that moves; then each moving thing is classified, and short
+stretches around each meteor are read again to measure it, stack it onto the composite, and draw the videos. This page walks through each step, the numbers behind it, and its limits.
 
 ```
+video ──► sky frame ──► plate solution (astrometry.net, optional)
 video ──► scan (Sky Tracker, two trackers, scene cuts) ──► tracks
 tracks ──► classify ──► meteors, satellites, planes, rejected (with reasons)
-          └► optics (lens, tilt) ──► angular speed, km/s
-meteors ──► radiant, trajectories.png, heatmap.png
-all of it ──► render ──► meteors.mp4      report ──► CSV + summary.json
+          └► optics (lens, tilt) or the stars ──► angular speed, km/s, sky paths ──► showers, radiant
+meteors' frames ──► brightness and magnitude, composite.png ──► rankings, top.png
+all of it ──► render ──► meteors.mp4, shorts/      report ──► CSV + summary.json + report.html
 ```
 
 | Module | Job |
@@ -17,7 +18,13 @@ all of it ──► render ──► meteors.mp4      report ──► CSV + sum
 | `tracking.py` | The only code that talks to the Sky Tracker SDK (tests swap in a stand-in) |
 | `classify.py` | Meteor, satellite, plane or rejected, with a reason code |
 | `optics.py` | Pixels to directions in the sky; angular speed; km/s |
-| `radiant.py` | The point a shower's meteors trace back to |
+| `radiant.py` | The point a shower's meteors trace back to, in the picture or among the stars |
+| `astro.py`, `wcs.py`, `sky.py` | Sidereal time and the Sun's longitude; plate solutions; the camera against the stars |
+| `showers.py`, `data/` | The IAU's established showers and the bright-star catalogue |
+| `frames.py`, `photometry.py` | Reading stretches of the video again; brightness and magnitude |
+| `composite.py`, `shorts.py` | The composite picture; the vertical clips |
+| `enrich.py` | Sky measurements, showers and rankings, added after classification |
+| `live.py` | Watching a camera live |
 | `images.py`, `render.py` | The pictures and the highlight video |
 | `report.py`, `html_report.py` | CSV and JSON; the report page |
 | `pipeline.py` | `process()`: the whole run |
@@ -105,11 +112,73 @@ than 0.6 s are joined. For long recordings the second pass jumps straight to eac
 between; it lands two seconds early and reads forward, so frame numbers stay exact even where seeking is approximate,
 and it falls back to reading straight through when a video cannot seek at all.
 
+## 7. The stars
+
+A frame from the middle of the video (the median of fifteen frames, so meteors, planes and noise drop out, with the
+sky glow flattened) is plate-solved by astrometry.net: its star patterns are matched against an index of the sky, which
+gives a TAN projection with SIP distortion terms, so lens distortion is measured rather than assumed. `wcs.py` reads
+that answer without an astronomy library; its results match astropy to a nanodegree.
+
+A tripod turns with the Earth, so every pixel sweeps through right ascension at the sidereal rate, 15.04 degrees an
+hour, at a fixed declination. One solution therefore describes the whole night: a meteor's start and end become
+directions among the stars at the moments it was there. Angular lengths and speeds are measured along the sky, and
+with the site and time the elevation of each point comes from the stars too, so no camera tilt is needed for km/s.
+
+The radiant is then fitted among the stars, where it stays put all night, instead of in the picture, where it drifts
+by 15 degrees an hour. Each meteor's path is a great circle; the radiant is the direction closest to all of their
+poles (the smallest eigenvector of the sum of their outer products), refitted with tightening tolerances (15, 8 and 4
+degrees) as in the picture version.
+
+## 8. Showers
+
+Given the date (the start time), the Sun's ecliptic longitude picks the showers that are active, from the IAU Meteor
+Data Center's established showers (171 of them, one row per shower: the median of the published parameter sets). Each
+shower's radiant is moved by its daily drift to that night. A meteor belongs to a shower when its great circle passes
+within 4 degrees of the radiant, it flies away from the radiant and starts within 90 degrees of it, and, when the
+distance to the meteor is known, its angular speed is between 0.35 and 2 times what the shower's entry speed gives at
+that distance. With the site known, showers whose radiant was below the horizon are left out. The closest fit wins;
+the rest are sporadic. A sporadic meteor that happens to line up is counted as a member, so a shower count of a few
+is uncertain.
+
+## 9. Brightness and magnitude
+
+Video stores light through a gamma curve, so pixels are made linear first (power 2.2). A meteor's brightness in a frame
+is the light it added inside its tracked box (plus 4 pixels), above the median of the nine frames before it appeared;
+its peak is the brightest frame. With a plate solution, catalogued stars of magnitude 1 to 5 in that background are
+measured the same way (3-pixel aperture, sky from a 6-9 pixel ring, centred on the brightest pixel near the catalogue
+position); their median zero point needs at least eight stars and turns the meteor's peak into a magnitude. Clipped
+pixels (250 or more) make the value a lower bound. Video compression, noise reduction and the true camera curve make
+this rough: treat it as plus or minus half a magnitude or more. Magnitude -4 or brighter is a fireball.
+
+## 10. Composite and vertical clips
+
+The composite starts from a median of frames at the plate-solved moment (or the middle of the busiest scene). Each
+meteor's streak is the most it added to its background in any of its frames, inside a soft corridor along its path,
+minus a small noise floor so hundreds of streaks do not add up their noise. With a plate solution each streak is
+remapped from where its piece of sky was then to where it was at the base picture's moment, so the shower radiates
+from one point among the stars while the landscape stays sharp.
+
+Vertical clips go to the best meteors: brightest first, then longest. Each is 1080x1920: a square close-up holding the
+whole path with a margin (never closer than 300 source pixels), the whole frame below with the close-up outlined, and
+the meteor's details as titles. It plays from 1.2 s before the meteor to 1.5 s after, then replays the meteor at a
+quarter speed.
+
+## 11. Live mode
+
+`meteor-cut watch` runs the same tracker and the same meteor rules on a live source. The last 16 seconds or so are kept
+as JPEG in memory. Lamps and people are recognised by what else moves near them within ten seconds, so each candidate
+is decided ten and a half seconds after it ends; a confirmed meteor's clip is cut from memory, from 1.5 s before it to
+1.5 s after, its brightness measured and its streak added to the composite. When the source ends or is stopped,
+anything still moving is left undecided, because it was cut short. Satellites and planes are not looked for live.
+
 ## Limits
 
 - **Fisheye lenses:** paths are curves, not lines. Detection still works, but straightness, speeds and the radiant are
   off. Use `--sky` to stay away from the edges, or treat the speeds as rough.
 - **Moving cameras:** `bright-diff` assumes a still camera. Tracking mounts and handheld video do not work.
 - **Very faint meteors in heavily compressed video:** they may never get bright enough between frames to be detected.
+- **Plate solving:** needs a clear part of the sky in the middle of the video and a camera that did not move. A
+  compilation is solved for the scene of that frame only.
+- **Magnitudes:** rough, see above; meteors outside the solved scene or with too few stars around get none.
 - **Twilight:** a brightening or darkening sky is fine, but clouds lit by passing car headlights can cause false
   detections; `rejected.csv` shows what was left out and why.
