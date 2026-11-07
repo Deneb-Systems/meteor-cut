@@ -91,4 +91,6 @@ def test_the_html_report_is_self_contained(night_video, fake_tracker, tmp_path):
     assert '<table id="meteors"' in page and "#1" in page and "S1" in page
     assert page.count("data:image/jpeg;base64,") == 3  # meteors, satellites and planes, heat map
     assert "<video" not in page  # no video was made
-    assert "http" not in page.split("<footer>")[0]  # no external files
+    # Nothing is fetched from anywhere: links are fine, external images, fonts or scripts are not.
+    assert 'src="http' not in page and "url(http" not in page and "url('http" not in page
+    assert "Deneb Systems" in page and "<svg" in page  # the by-line and the inline logo

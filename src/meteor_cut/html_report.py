@@ -59,6 +59,12 @@ def _describe_settings(settings: Mapping[str, Any]) -> str:
     return "; ".join(parts)
 
 
+def _logo_svg() -> str:
+    """The Deneb Systems logo, inline so the page stays one file."""
+    svg = files("meteor_cut.web").joinpath("static/deneb-systems-logo.svg").read_text(encoding="utf-8")
+    return svg.replace("<svg ", '<svg role="img" aria-label="Deneb Systems" ', 1)
+
+
 def _num(value: float | None, digits: int = 1) -> str:
     return "" if value is None or not math.isfinite(value) else f"{value:.{digits}f}"
 
@@ -178,6 +184,7 @@ def write_html_report(
 
     page = TEMPLATE.format(
         font=_font_data(),
+        logo=_logo_svg(),
         name=name,
         cards=card_html,
         chart=_per_hour_chart(found.meteors, scan.duration_s),
@@ -221,6 +228,11 @@ TEMPLATE = """<!doctype html>
   main {{ width:min(100%,72rem); margin:0 auto; padding:clamp(4rem,9vw,6.5rem) clamp(1.125rem,4vw,3rem) 6rem }}
   a {{ color:var(--signal) }}
   .kicker {{ margin:0 0 .75rem; color:var(--signal); font-size:1.125rem; font-weight:600 }}
+  .brand {{ display:flex; align-items:center; gap:.75rem; margin:0 0 3rem }}
+  .brand svg {{ width:2.5rem; height:auto }}
+  .brand b {{ color:var(--silver-bright); font-size:1.125rem; letter-spacing:-.01em }}
+  .brand span {{ color:var(--muted); font-size:.9375rem }}
+  .brand a {{ color:var(--silver); font-weight:600; text-decoration:none }}
   h1 {{ margin:0; color:var(--silver-bright); font-size:clamp(2.75rem,7vw,5rem); font-weight:700; line-height:1.02;
        letter-spacing:-.045em; overflow-wrap:anywhere }}
   h2 {{ margin:clamp(3.5rem,8vw,5.5rem) 0 1.25rem; color:var(--silver-bright); font-size:clamp(1.75rem,3.5vw,2.5rem);
@@ -253,6 +265,8 @@ TEMPLATE = """<!doctype html>
   code {{ margin-left:auto; color:var(--muted); font-size:.8125rem }}
   footer {{ margin-top:4rem; color:var(--muted); font-size:.875rem }}
 </style></head><body><main>
+<header class="brand"><a href="https://deneb-systems.com" aria-label="Deneb Systems">{logo}</a>
+<span><b>Meteor Cut</b> <span>by <a href="https://deneb-systems.com">Deneb Systems</a></span></span></header>
 <p class="kicker">Meteor Cut report</p>
 <h1>{name}</h1>
 <div class="cards">{cards}</div>
@@ -270,7 +284,7 @@ TEMPLATE = """<!doctype html>
 <h2>Left out</h2>
 <p class="lead">Everything that moved but was not kept, by reason. rejected.csv lists each one.</p>
 <ul class="reasons">{rejected}</ul>
-<footer>{versions}. {settings}.</footer>
+<footer>Made with Meteor Cut by <a href="https://deneb-systems.com">Deneb Systems</a>. {versions}. {settings}.</footer>
 </main>
 <script>
   for (const table of document.querySelectorAll('table.sortable')) {{

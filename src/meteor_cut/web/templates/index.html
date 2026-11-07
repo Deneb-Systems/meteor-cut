@@ -40,6 +40,11 @@
     a { color: var(--signal); text-decoration: none } a:hover { text-decoration: underline }
 
     .kicker { margin: 0 0 .75rem; color: var(--signal); font-size: clamp(1rem, 1.4vw, 1.125rem); font-weight: 600 }
+    .brand { display: flex; align-items: center; gap: .75rem; margin: 0 0 clamp(2.5rem, 6vw, 4rem) }
+    .brand img { width: 2.5rem; height: auto }
+    .brand-name { color: var(--silver-bright); font-size: 1.125rem; font-weight: 700; letter-spacing: -.01em }
+    .brand-by { color: var(--muted); font-size: .9375rem }
+    .brand-by a { color: var(--silver); font-weight: 600 }
     h1 { margin: 0; color: var(--silver-bright); font-size: clamp(3.25rem, 9vw, 6rem); font-weight: 700;
          line-height: 1; letter-spacing: -.045em }
     .lead { max-width: 40rem; margin: 1.5rem 0 0; color: #a3abae; font-size: clamp(1.125rem, 1.8vw, 1.375rem);
@@ -127,7 +132,13 @@
 </head>
 <body>
 <main>
-  <p class="kicker">Meteor Cut</p>
+  <header class="brand">
+    <a href="https://deneb-systems.com" target="_blank" rel="noopener" aria-label="Deneb Systems">
+      <img src="{{ url_for('static', filename='deneb-systems-logo.svg') }}" alt="" width="40" height="34"></a>
+    <span><span class="brand-name">Meteor Cut</span>
+      <span class="brand-by">by <a href="https://deneb-systems.com" target="_blank" rel="noopener">Deneb Systems</a></span></span>
+  </header>
+  <p class="kicker">Meteor highlights from a night of video</p>
   <h1>Every meteor of the night.</h1>
   <p class="lead">Drop in a video from a camera on a tripod. Meteor Cut finds every meteor with Sky Tracker, measures
     its speed, and cuts a highlight video with only them, plus pictures and tables. It all runs on this computer.</p>
@@ -181,7 +192,8 @@
     <div id="result"></div>
   </section>
 
-  <footer>Tracked with <a href="https://sky-tracker.deneb-systems.com" target="_blank" rel="noopener">Sky Tracker</a></footer>
+  <footer>Meteor Cut by <a href="https://deneb-systems.com" target="_blank" rel="noopener">Deneb Systems</a> ·
+    tracked with <a href="https://sky-tracker.deneb-systems.com" target="_blank" rel="noopener">Sky Tracker</a></footer>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);

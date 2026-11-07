@@ -19,6 +19,9 @@ def upload(client, data: bytes, name: str = "night.avi", **form):
 def test_the_page_lists_the_sensors(client):
     page = client.get("/")
     assert page.status_code == 200 and b"Meteor Cut" in page.data and b"full-frame" in page.data
+    assert b"by <a" in page.data and b"Deneb Systems" in page.data
+    with client.get("/static/deneb-systems-logo.svg") as logo:
+        assert logo.status_code == 200 and b"<svg" in logo.data
 
 
 @pytest.mark.parametrize(
