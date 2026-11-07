@@ -56,6 +56,7 @@
     .drop b { color: var(--silver-bright); font-size: 1.125rem; font-weight: 600 }
     .drop span { color: var(--muted); font-size: .9375rem }
     .drop.chosen b { color: var(--signal) }
+    .drop.missing { border-color: var(--danger) } .drop.missing b { color: var(--danger) }
     .drop input { position: absolute; width: 1px; height: 1px; opacity: 0 }
 
     .section-label { margin: 2rem 0 .875rem; color: var(--silver-bright); font-size: 1rem; font-weight: 600 }
@@ -75,13 +76,27 @@
 
     .chips { display: flex; flex-wrap: wrap; gap: .625rem }
     .chip input { position: absolute; opacity: 0; pointer-events: none }
-    .chip span { display: inline-flex; align-items: center; min-height: 2.5rem; padding: 0 1.125rem;
-                 border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--silver);
-                 font-size: .9375rem; font-weight: 600; cursor: pointer; transition: background .15s, color .15s }
-    .chip input:checked + span { background: var(--signal); color: var(--ink); box-shadow: none }
+    /* Options, not actions: outlined, with a tick when on. Only the button below is filled. */
+    .chip span { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.5rem; padding: 0 1rem 0 .75rem;
+                 border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--muted);
+                 font-size: .9375rem; font-weight: 600; cursor: pointer; transition: color .15s, box-shadow .15s }
+    .chip span::before { content: ""; display: inline-grid; place-items: center; width: 1.125rem; height: 1.125rem;
+                         border-radius: .3125rem; box-shadow: inset 0 0 0 1.5px var(--line-strong);
+                         font-size: .75rem; line-height: 1 }
+    .chip:hover span { color: var(--silver) }
+    .chip input:checked + span { color: var(--silver-bright); box-shadow: inset 0 0 0 1.5px var(--signal) }
+    .chip input:checked + span::before { content: "✓"; background: var(--signal); color: var(--ink); box-shadow: none;
+                                         font-weight: 800 }
     .chip input:focus-visible + span { outline: 2px solid var(--signal); outline-offset: 2px }
 
     .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: 2.25rem }
+    /* The one action of the form: full width, below a divider, with an arrow. */
+    .launch { margin-top: 2.5rem; padding-top: 2rem; border-top: 1px solid var(--line) }
+    .pill.primary { width: 100%; min-height: 3.75rem; gap: .625rem; font-size: 1.1875rem; font-weight: 700;
+                    box-shadow: 0 10px 40px -12px color-mix(in srgb, var(--signal) 60%, transparent) }
+    .pill.primary .arrow { transition: transform .2s }
+    .pill.primary:hover .arrow { transform: translateX(4px) }
+    .launch .hint { margin-top: .875rem; text-align: center }
     .pill { display: inline-flex; align-items: center; justify-content: center; min-height: 3.25rem; padding: 0 2rem;
             border: 0; border-radius: 999px; background: var(--signal); color: var(--ink); font: 600 1.0625rem var(--body);
             cursor: pointer; transition: filter .15s }
@@ -150,9 +165,10 @@
       <label class="chip"><input type="checkbox" name="trails" value="on" checked><span>Keep past trails</span></label>
     </div>
 
-    <div class="actions">
-      <button id="go" class="pill" type="submit">Find meteors</button>
-      <span class="hint" id="note"></span>
+    <div class="launch">
+      <button id="go" class="pill primary" type="submit">Find meteors <span class="arrow" aria-hidden="true">→</span></button>
+      <p class="hint" id="note">Starts the analysis on this computer. An hour of video takes a few minutes; a whole
+        night, about an hour. You can reload the page meanwhile.</p>
     </div>
   </form>
 
@@ -176,6 +192,7 @@
 
   function chosen() {
     const file = input.files[0];
+    drop.classList.remove('missing');
     drop.classList.toggle('chosen', !!file);
     $('drop-title').textContent = file ? file.name : 'Choose a video, or drop it here';
     $('drop-sub').textContent = file ? `${size(file.size)} · click to choose another` : 'MP4, MOV, MKV, AVI or WebM, up to the length of a whole night';
@@ -215,8 +232,12 @@
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    if (!input.files.length) { $('note').innerHTML = '<span class="error">Choose a video first.</span>'; return; }
-    $('note').textContent = '';
+    if (!input.files.length) {
+      drop.classList.add('missing');
+      $('drop-title').textContent = 'Choose a video first';
+      drop.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     go.disabled = true; box.hidden = false; result.innerHTML = '';
     show('Uploading', 0);
     box.scrollIntoView({ behavior: 'smooth', block: 'start' });
