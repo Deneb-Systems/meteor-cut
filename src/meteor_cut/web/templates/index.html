@@ -227,6 +227,7 @@
     request.upload.onprogress = (e) => { if (e.lengthComputable) show('Uploading', e.loaded / e.total); };
     request.onload = () => {
       if (request.status !== 202) { fail(request.response?.error || 'The upload failed.'); return; }
+      remember(request.response.id);
       poll(request.response.id);
     };
     request.onerror = () => fail('The upload failed. Is meteor-cut serve still running?');
@@ -238,6 +239,20 @@
     percent.textContent = '';
     eta.textContent = '';
     go.disabled = false;
+  }
+
+  // The job runs on the server whatever the page does. Its id goes in the address (#job=...), so reloading the page,
+  // or opening that address later, shows the same job again.
+  function remember(id) { history.replaceState(null, '', `#job=${id}`); }
+
+  async function resume() {
+    const id = /^#job=([0-9a-f]+)$/.exec(location.hash)?.[1];
+    if (!id) return;
+    const response = await fetch(`/jobs/${id}`).catch(() => null);
+    if (!response || !response.ok) { history.replaceState(null, '', location.pathname); return; }
+    box.hidden = false;
+    go.disabled = true;
+    poll(id);
   }
 
   async function poll(id) {
@@ -276,6 +291,8 @@
       </div>
       <div class="files">${s.files.map((f) => `<a class="pill quiet" href="${file(f)}?download=1">${esc(f)}</a>`).join('')}</div>`;
   }
+  window.addEventListener('hashchange', resume);
+  resume();
 </script>
 </body>
 </html>

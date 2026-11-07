@@ -9,6 +9,7 @@ from __future__ import annotations
 import atexit
 import ipaddress
 import logging
+import re
 import shutil
 import tempfile
 import threading
@@ -192,7 +193,17 @@ def _is_loopback(host: str) -> bool:
         return host == "localhost"
 
 
+class _QuietPolling(logging.Filter):
+    """Drops the access-log line of each successful progress check (one a second while a video is processed)."""
+
+    _PROGRESS_CHECK = re.compile(r'"GET /jobs/[0-9a-f]+ HTTP/[\d.]+" 200 ')
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not self._PROGRESS_CHECK.search(record.getMessage())
+
+
 def serve(host: str = "127.0.0.1", port: int = 8765, *, max_upload_bytes: int = 20 * 1024**3) -> None:
+    logging.getLogger("werkzeug").addFilter(_QuietPolling())
     if not _is_loopback(host):
         log.warning("listening on %s: anyone who can reach this address can upload videos and read the results", host)
     print(f"Meteor Cut: open http://{host}:{port} in your browser (Ctrl+C to stop)")

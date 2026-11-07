@@ -95,3 +95,18 @@ def test_an_upload_named_like_an_output_does_not_clash(client, night_video):
             break
         time.sleep(0.05)
     assert status["error"] is None and status["summary"]["meteors"] == 1 and "meteors.mp4" in status["files"]
+
+
+def test_progress_checks_are_not_logged_but_everything_else_is():
+    import logging
+
+    from meteor_cut.web.app import _QuietPolling
+
+    def line(message):
+        return logging.LogRecord("werkzeug", logging.INFO, __file__, 1, message, None, None)
+
+    quiet = _QuietPolling()
+    assert not quiet.filter(line('127.0.0.1 - - [07/Nov/2026 13:53:06] "GET /jobs/cbbdc65308 HTTP/1.1" 200 -'))
+    assert quiet.filter(line('127.0.0.1 - - [07/Nov/2026 13:53:06] "POST /jobs HTTP/1.1" 202 -'))
+    assert quiet.filter(line('127.0.0.1 - - [07/Nov/2026 13:53:06] "GET /jobs/cbbdc65308/meteors.mp4 HTTP/1.1" 200 -'))
+    assert quiet.filter(line('127.0.0.1 - - [07/Nov/2026 13:53:06] "GET /jobs/nope HTTP/1.1" 404 -'))
