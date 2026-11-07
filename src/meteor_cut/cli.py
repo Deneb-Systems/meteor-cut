@@ -10,7 +10,8 @@ from pathlib import Path
 from .licence import SkyTrackerUnavailable
 from .meteors import Rules
 from .optics import SENSORS
-from .pipeline import Lens, run
+from .pipeline import Lens, parse_show, run
+from .render import Style
 
 
 def _region(value: str) -> tuple[int, int, int, int]:
@@ -44,7 +45,10 @@ def _parser() -> argparse.ArgumentParser:
                    help=f"slowest meteor, in frame widths per second (default {Rules.min_speed})")
     p.add_argument("--max-duration", type=float, default=Rules.max_duration_s, metavar="S",
                    help=f"longest meteor in seconds (default {Rules.max_duration_s})")
-    p.add_argument("--no-video", action="store_true", help="write only the CSV and JSON files")
+    p.add_argument("--show", default="meteors", metavar="WHAT",
+                   help="what the highlight video shows: meteors (default), satellites, planes, a comma list, or all")
+    p.add_argument("--no-trails", action="store_true", help="do not keep past trails faintly on screen")
+    p.add_argument("--no-video", action="store_true", help="write only the images, CSV and JSON files")
     p.add_argument("--host", default="127.0.0.1", help="serve: address to listen on")
     p.add_argument("--port", type=int, default=8765, help="serve: port (default 8765)")
     return p
@@ -65,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
     lens = Lens(focal_mm=args.focal, sensor=args.sensor, hfov_deg=args.fov, tilt_deg=args.tilt, roll_deg=args.roll,
                 altitude_km=args.altitude)
     rules = Rules(min_speed=args.min_speed, max_duration_s=args.max_duration)
+    try:
+        style = Style(show=parse_show(args.show), trails=not args.no_trails)
+    except ValueError as error:
+        print(f"meteor-cut: {error}", file=sys.stderr)
+        return 2
 
     last = [""]
     started = time.time()
@@ -77,8 +86,8 @@ def main(argv: list[str] | None = None) -> int:
         print(line, end="", file=sys.stderr, flush=True)
 
     try:
-        result = run(str(video), out, lens, sky_region=args.sky, rules=rules, make_video=not args.no_video,
-                     progress=progress)
+        result = run(str(video), out, lens, sky_region=args.sky, rules=rules, style=style,
+                     make_video=not args.no_video, progress=progress)
     except (SkyTrackerUnavailable, ValueError) as error:
         print(f"\nmeteor-cut: {error}", file=sys.stderr)
         return 1
@@ -89,11 +98,20 @@ def main(argv: list[str] | None = None) -> int:
     if s["angular_speed_deg_s"]:
         a = s["angular_speed_deg_s"]
         print(f"Angular speed: mean {a['mean']} deg/s, fastest {a['max']} deg/s (meteor #{s['fastest']}).")
+    if s["satellites"] or s["planes"]:
+        print(f"Also {s['satellites']} satellites and {s['planes']} planes (satellites_planes.csv; --show all to "
+              f"put them in the video).")
+    if s["radiant"]:
+        r = s["radiant"]
+        print(f"Radiant: {r['meteors']} meteors trace back to x={r['x_px']:.0f}, y={r['y_px']:.0f}"
+              + ("" if r["in_frame"] else " (outside the frame)") + ".")
     if s["sky_speed_km_s"]:
         print(f"Speed across the sky: at least {s['sky_speed_km_s']['mean']} km/s on average.")
     if result.video:
         print(f"Highlights: {result.video}")
-    print(f"Tables: {result.out_dir / 'meteors.csv'}, meteor_points.csv, rejected.csv, summary.json")
+    print(f"Images: {result.out_dir / 'trajectories.png'}, heatmap.png")
+    print(f"Tables: {result.out_dir / 'meteors.csv'}, satellites_planes.csv, meteor_points.csv, rejected.csv, "
+          f"summary.json")
     return 0
 
 

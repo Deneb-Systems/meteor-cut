@@ -16,9 +16,11 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 
 from .licence import SkyTrackerUnavailable
 from .optics import SENSORS
-from .pipeline import Lens, run
+from .pipeline import Lens, parse_show, run
+from .render import Style
 
-OUTPUTS = ("meteors.mp4", "meteors.csv", "meteor_points.csv", "rejected.csv", "summary.json")
+OUTPUTS = ("meteors.mp4", "trajectories.png", "heatmap.png", "meteors.csv", "satellites_planes.csv",
+           "meteor_points.csv", "rejected.csv", "summary.json")
 
 
 @dataclass
@@ -43,11 +45,11 @@ def create_app(work_dir: Path | None = None) -> Flask:
     root = work_dir or Path(tempfile.mkdtemp(prefix="meteor-cut-"))
     jobs: dict[str, Job] = {}
 
-    def process(job: Job, video: Path, lens: Lens) -> None:
+    def process(job: Job, video: Path, lens: Lens, style: Style) -> None:
         def progress(stage: str, fraction: float) -> None:
             job.stage, job.fraction = stage, fraction
         try:
-            result = run(str(video), job.folder, lens, progress=progress)
+            result = run(str(video), job.folder, lens, style=style, progress=progress)
             job.summary = result.summary
         except (SkyTrackerUnavailable, ValueError) as error:
             job.error = str(error)
@@ -73,6 +75,8 @@ def create_app(work_dir: Path | None = None) -> Flask:
                         roll_deg=_float(request.form, "roll") or 0.0,
                         altitude_km=_float(request.form, "altitude") or 95.0)
             lens.camera(1920, 1080)  # check the combination now, not after the upload is processed
+            style = Style(show=parse_show(request.form.getlist("show") or ["meteors"]),
+                          trails=request.form.get("trails") == "on")
         except ValueError as error:
             return jsonify(error=str(error)), 400
         job = Job(uuid.uuid4().hex[:12], root / uuid.uuid4().hex[:12], Path(upload.filename).name)
@@ -80,7 +84,7 @@ def create_app(work_dir: Path | None = None) -> Flask:
         video = job.folder / ("upload" + Path(upload.filename).suffix.lower())
         upload.save(video)
         jobs[job.id] = job
-        threading.Thread(target=process, args=(job, video, lens), daemon=True).start()
+        threading.Thread(target=process, args=(job, video, lens, style), daemon=True).start()
         return jsonify(id=job.id)
 
     @app.get("/jobs/<job_id>")
@@ -134,6 +138,10 @@ PAGE = """<!doctype html>
   a { color:var(--signal) } .files a { margin-right:16px } .error { color:#ff9d8a }
   .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:12px 0 }
   .stat b { display:block; font-size:26px } .stat span { color:var(--muted); font-size:13px }
+  .checks { display:flex; flex-wrap:wrap; gap:8px 20px; align-items:center; margin:4px 0 14px; color:var(--muted) }
+  .checks label { display:flex; gap:6px; align-items:center; margin:0; color:var(--text) }
+  .checks input { width:auto } .shots { display:grid; grid-template-columns:1fr 1fr; gap:12px }
+  .shots img { width:100%; border-radius:10px }
 </style></head><body><main>
 <h1>Meteor Cut</h1>
 <p class="lead">Upload a night-sky video from a camera on a tripod. Meteor Cut finds every meteor with Sky Tracker,
@@ -148,6 +156,11 @@ makes a highlight video with only them, sorted by speed, and gives you the table
       <div class="hint">0 level, 90 straight up. Needed for km/s.</div></div>
     <div><label for="altitude">Meteor height (km)</label><input id="altitude" name="altitude" type="number" step="1" min="40" max="200" value="95"></div>
   </div>
+  <div class="checks"><span>In the video:</span>
+    <label><input type="checkbox" name="show" value="meteors" checked> meteors</label>
+    <label><input type="checkbox" name="show" value="satellites"> satellites</label>
+    <label><input type="checkbox" name="show" value="planes"> planes</label>
+    <label><input type="checkbox" name="trails" value="on" checked> keep past trails</label></div>
   <p class="hint">Without a lens, speeds are in pixels per second. With the lens, in degrees per second;
     with the tilt too, an estimate in km/s (the part of the speed across your view, so the real speed is at least that).</p>
   <button id="go" type="submit">Find meteors</button>
@@ -183,7 +196,10 @@ async function poll(id) {
       ${a ? `<div class="stat"><b>${a.max}°/s</b><span>fastest (#${m.fastest})</span></div>
              <div class="stat"><b>${a.mean}°/s</b><span>average</span></div>` : ''}
       ${k ? `<div class="stat"><b>≥${k.mean} km/s</b><span>average across the view</span></div>` : ''}
+      ${m.satellites ? `<div class="stat"><b>${m.satellites}</b><span>satellites</span></div>` : ''}
+      ${m.planes ? `<div class="stat"><b>${m.planes}</b><span>planes</span></div>` : ''}
     </div>
+    ${s.files.includes('trajectories.png') ? `<div class="shots"><a href="/jobs/${id}/trajectories.png"><img src="/jobs/${id}/trajectories.png" alt="Every trajectory"></a><a href="/jobs/${id}/heatmap.png"><img src="/jobs/${id}/heatmap.png" alt="Heat map"></a></div>` : ''}
     ${s.files.includes('meteors.mp4') ? `<video controls src="/jobs/${id}/meteors.mp4"></video>` : '<p>No meteors found, so no video.</p>'}
     <p class="files">${s.files.map(f => `<a href="/jobs/${id}/${f}?download=1">${f}</a>`).join('')}</p>`;
 }

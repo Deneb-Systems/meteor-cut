@@ -40,12 +40,29 @@ def write_meteors_csv(path: Path, meteors: list[Meteor]) -> None:
 def write_points_csv(path: Path, meteors: list[Meteor], fps: float, camera: Camera | None) -> None:
     with path.open("w", newline="") as f:
         out = csv.writer(f)
-        out.writerow(["number", "frame", "time_s", "x", "y", "box_w", "box_h", "elevation_deg"])
+        out.writerow(["object", "kind", "frame", "time_s", "x", "y", "box_w", "box_h", "brightness",
+                      "elevation_deg"])
         for m in meteors:
             for p in m.points:
                 elevation = camera.elevation_deg(p.cx, p.cy) if camera else None
-                out.writerow([m.extra["number"], p.frame, _num(p.frame / fps, 3), _num(p.cx, 1), _num(p.cy, 1),
-                              _num(p.w, 1), _num(p.h, 1), _num(elevation, 2)])
+                out.writerow([m.label, m.kind, p.frame, _num(p.frame / fps, 3), _num(p.cx, 1), _num(p.cy, 1),
+                              _num(p.w, 1), _num(p.h, 1), p.peak, _num(elevation, 2)])
+
+
+def write_objects_csv(path: Path, objects: list[Meteor]) -> None:
+    """Satellites and planes: one row each."""
+    with path.open("w", newline="") as f:
+        out = csv.writer(f)
+        out.writerow(["object", "kind", "start_time_s", "end_time_s", "duration_s", "start_x", "start_y", "end_x",
+                      "end_y", "length_px", "speed_px_s", "direction_deg", "angular_speed_deg_s",
+                      "brightness_variation", "detected_share", "travels_with_another_light"])
+        for o in objects:
+            out.writerow([o.label, o.kind, _num(o.start_s, 2), _num(o.end_s, 2), _num(o.duration_s, 2),
+                          _num(o.start[0], 1), _num(o.start[1], 1), _num(o.end[0], 1), _num(o.end[1], 1),
+                          _num(o.length_px, 1), _num(o.speed_px_s, 1), _num(o.direction_deg, 1),
+                          _num(o.speed.angular_speed_deg_s if o.speed else None),
+                          o.extra.get("brightness_variation"), o.extra.get("detected_share"),
+                          o.extra.get("companion")])
 
 
 def write_rejected_csv(path: Path, rejected: list[Rejected], fps: float) -> None:
@@ -57,7 +74,8 @@ def write_rejected_csv(path: Path, rejected: list[Rejected], fps: float) -> None
 
 
 def summary(scan: Scan, meteors: list[Meteor], rejected: list[Rejected], camera: Camera | None,
-            clips: list[tuple[int, int]], settings: dict) -> dict:
+            clips: list[tuple[int, int]], settings: dict, others: list[Meteor] = (), radiant=None,
+            radiant_scene: int = 0) -> dict:
     hours = scan.frames / scan.fps / 3600 if scan.fps else 0
     speeds = [m.speed.angular_speed_deg_s for m in meteors if m.speed]
     sky = [m.speed.sky_speed_km_s for m in meteors if m.speed and m.speed.sky_speed_km_s]
@@ -72,6 +90,13 @@ def summary(scan: Scan, meteors: list[Meteor], rejected: list[Rejected], camera:
         # A rate from a short clip is meaningless; give it from 10 minutes of video.
         "meteors_per_hour": round(len(meteors) / hours, 1) if hours >= 1 / 6 else None,
         "fastest": fastest.extra["number"] if fastest else None,
+        "satellites": sum(1 for o in others if o.kind == "satellite"),
+        "planes": sum(1 for o in others if o.kind == "plane"),
+        "radiant": {"x_px": round(radiant.x, 1), "y_px": round(radiant.y, 1), "meteors": radiant.members,
+                    "spread_px": round(radiant.spread_px, 1), "scene": radiant_scene,
+                    "in_frame": 0 <= radiant.x < scan.width and 0 <= radiant.y < scan.height,
+                    "elevation_deg": _num(camera.elevation_deg(radiant.x, radiant.y), 1) if camera else None}
+        if radiant else None,
         "angular_speed_deg_s": {"mean": round(sum(speeds) / len(speeds), 2), "max": round(max(speeds), 2),
                                 "min": round(min(speeds), 2)} if speeds else None,
         "sky_speed_km_s": {"mean": round(sum(sky) / len(sky), 1), "max": round(max(sky), 1)} if sky else None,

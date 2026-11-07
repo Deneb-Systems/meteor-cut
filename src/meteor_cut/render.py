@@ -1,14 +1,15 @@
-"""Second pass: the highlight video, made only of the moments with meteors.
+"""Second pass: the highlight video, made only of the moments with meteors (and, if asked, satellites and planes).
 
-Layout (1920x1080 by default): the video on the left, scaled to fit, with a header (source time, which meteor) and a
-footer (totals); on the right a panel listing every meteor sorted by speed, with the ones on screen highlighted. Each
-meteor gets a box at its head, its trail, and a label with its number and speed.
+Layout (1920x1080 by default): the video on the left, scaled to fit, with a header (source time, what is on screen)
+and a footer (totals); on the right a panel listing every meteor sorted by speed, with the ones on screen highlighted.
+Each object gets a box at its head, its trail, and a label with its number and speed. Trails of what has already
+passed stay faintly on screen until the scene changes. The video ends on the trajectories and heat map images.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import cv2
@@ -18,12 +19,12 @@ from PIL import Image, ImageDraw, ImageFont
 from .meteors import Meteor
 from .scan import Scan
 
-CYAN = (131, 232, 250)
+CYAN = (131, 232, 250)      # RGB
 WHITE = (240, 244, 245)
 MUTED = (140, 152, 158)
-DIM = (80, 88, 92)
 BG = (6, 9, 12)
 PANEL = (12, 17, 21)
+KIND_COLOUR = {"meteor": CYAN, "satellite": (120, 230, 140), "plane": (255, 170, 80)}
 
 
 @dataclass(frozen=True)
@@ -32,16 +33,24 @@ class Style:
     height: int = 1080
     panel_width: int = 480
     bar_height: int = 120         # header and footer around the video
-    before_s: float = 0.7         # video kept before a meteor appears...
+    before_s: float = 0.7         # video kept before an object appears...
     after_s: float = 1.0          # ...and after it ends
     merge_gap_s: float = 0.6      # clips closer than this are joined
     box_padding: int = 14
+    show: tuple[str, ...] = ("meteor",)   # kinds that get clips and boxes: meteor, satellite, plane
+    trails: bool = True           # keep past trails faintly on screen
+    end_card_s: float = 4.0       # seconds for each closing image (trajectories, heat map)
+    end_cards: list = field(default_factory=list, compare=False)  # BGR images, set by the pipeline
 
 
-def clips(scan: Scan, meteors: list[Meteor], style: Style) -> list[tuple[int, int]]:
-    """Frame ranges to keep, inside each meteor's scene, merged when they nearly touch."""
+def scan_scene(scan: Scan, frame: int) -> int:
+    return sum(1 for cut in scan.cuts if cut <= frame)
+
+
+def clips(scan: Scan, objects: list[Meteor], style: Style) -> list[tuple[int, int]]:
+    """Frame ranges to keep, inside each object's scene, merged when they nearly touch."""
     ranges = []
-    for m in meteors:
+    for m in objects:
         lo, hi = scan.scene_bounds(m.scene)
         ranges.append((max(lo, m.start_frame - round(style.before_s * scan.fps)),
                        min(hi, m.end_frame + round(style.after_s * scan.fps))))
@@ -56,10 +65,6 @@ def clips(scan: Scan, meteors: list[Meteor], style: Style) -> list[tuple[int, in
     return [(a, b) for a, b in merged]
 
 
-def scan_scene(scan: Scan, frame: int) -> int:
-    return sum(1 for cut in scan.cuts if cut <= frame)
-
-
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     for name in (("DejaVuSans-Bold.ttf", "Arial Bold.ttf", "Helvetica-Bold.ttf") if bold else
                  ("DejaVuSans.ttf", "Arial.ttf", "Helvetica.ttc")):
@@ -71,7 +76,11 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
 
 
 def _clock(seconds: float) -> str:
-    minutes, rest = divmod(max(0.0, seconds), 60)
+    seconds = max(0.0, seconds)
+    hours, rest = divmod(seconds, 3600)
+    minutes, rest = divmod(rest, 60)
+    if hours:
+        return f"{int(hours)}:{int(minutes):02d}:{int(rest):02d}"
     return f"{int(minutes):02d}:{rest:04.1f}"
 
 
@@ -83,9 +92,15 @@ def speed_text(m: Meteor) -> tuple[str, str]:
     return f"{m.speed_px_s:.0f} px/s", ""
 
 
+def _bgr(rgb: tuple[int, int, int], factor: float = 1.0) -> tuple[int, int, int]:
+    return tuple(int(c * factor) for c in rgb[::-1])
+
+
 class Renderer:
-    def __init__(self, scan: Scan, meteors: list[Meteor], style: Style = Style()):
+    def __init__(self, scan: Scan, meteors: list[Meteor], style: Style = Style(), others: list[Meteor] = ()):
         self.scan, self.meteors, self.style = scan, meteors, style
+        self.others = list(others)
+        self.objects = [o for o in [*meteors, *self.others] if o.kind in style.show]
         self.by_speed = sorted(meteors, key=lambda m: m.rank)
         area_w = style.width - style.panel_width
         area_h = style.height - 2 * style.bar_height
@@ -97,35 +112,59 @@ class Renderer:
         self.f_row, self.f_row_bold = _font(19), _font(19, True)
         self.linger = round(0.5 * scan.fps)
         self._panel_cache: dict[tuple, np.ndarray] = {}
-        rate = len(meteors) / (scan.frames / scan.fps) * 3600 if scan.frames else 0
+        self._trails = np.zeros((self.video_h, self.video_w, 3), np.uint8)
+        self._trailed: set[int] = set()
+        self._trail_scene = -1
+        duration = scan.frames / scan.fps if scan.fps else 0
+        counts = [f"{len(meteors)} meteors"]
+        for kind in ("satellite", "plane"):
+            n = sum(1 for o in self.others if o.kind == kind)
+            if n:
+                counts.append(f"{n} {kind}s")
+        rate = f"  ·  {len(meteors) / duration * 3600:.0f} meteors per hour" if duration >= 600 else ""
         fastest = self.by_speed[0] if self.by_speed else None
-        per_hour = f"  ·  {rate:.0f} per hour" if scan.frames / scan.fps >= 600 else ""
-        self.footer = (f"{len(meteors)} meteors in {_clock(scan.frames / scan.fps)}{per_hour}"
-                       + (f"  ·  fastest #{fastest.extra['number']} {speed_text(fastest)[0]}" if fastest else ""))
+        self.footer = (", ".join(counts) + f" in {_clock(duration)}{rate}"
+                       + (f"  ·  fastest {fastest.label} {speed_text(fastest)[0]}" if fastest else ""))
 
     def active(self, frame: int) -> list[Meteor]:
-        return [m for m in self.meteors if m.start_frame <= frame <= m.end_frame + self.linger]
+        return [m for m in self.objects if m.start_frame <= frame <= m.end_frame + self.linger]
 
     def frame(self, image: np.ndarray, index: int) -> np.ndarray:
         s = self.style
         canvas = np.empty((s.height, s.width, 3), np.uint8)
         canvas[:] = BG[::-1]
         video = cv2.resize(image, (self.video_w, self.video_h), interpolation=cv2.INTER_AREA)
+        if s.trails:
+            self._update_trails(index)
+            np.maximum(video, self._trails, out=video)
         active = self.active(index)
         for m in active:
-            self._draw_meteor(video, m, index)
+            self._draw_object(video, m, index)
         canvas[self.video_y:self.video_y + self.video_h, self.video_x:self.video_x + self.video_w] = video
-        canvas[:, s.width - s.panel_width:] = self._panel(tuple(sorted(m.id for m in active)))
+        canvas[:, s.width - s.panel_width:] = self._panel(tuple(sorted(m.id for m in active if m.kind == "meteor")))
         self._bars(canvas, index, active)
         return canvas
 
-    def _draw_meteor(self, video: np.ndarray, m: Meteor, index: int) -> None:
+    def _update_trails(self, index: int) -> None:
+        scene = scan_scene(self.scan, index)
+        if scene != self._trail_scene:
+            self._trails[:] = 0
+            self._trailed.clear()
+            self._trail_scene = scene
+        k = self.scale
+        for m in self.objects:
+            if m.scene == scene and m.id not in self._trailed and index > m.end_frame + self.linger:
+                pts = np.array([[p.cx * k, p.cy * k] for p in m.points], np.int32)
+                if len(pts) > 1:
+                    cv2.polylines(self._trails, [pts], False, _bgr(KIND_COLOUR[m.kind], 0.45), 1, cv2.LINE_AA)
+                self._trailed.add(m.id)
+
+    def _draw_object(self, video: np.ndarray, m: Meteor, index: int) -> None:
         k = self.scale
         seen = [p for p in m.points if p.frame <= index]
         if not seen:
             return
-        ended = index > m.end_frame
-        colour = tuple(int(c * (0.55 if ended else 1.0)) for c in CYAN[::-1])
+        colour = _bgr(KIND_COLOUR[m.kind], 0.55 if index > m.end_frame else 1.0)
         trail = np.array([[p.cx * k, p.cy * k] for p in seen], np.int32)
         if len(trail) > 1:
             cv2.polylines(video, [trail], False, colour, 2, cv2.LINE_AA)
@@ -135,14 +174,14 @@ class Renderer:
         x1, y1 = int(head.cx * k + head.w * k / 2 + pad), int(head.cy * k + head.h * k / 2 + pad)
         cv2.rectangle(video, (x0, y0), (x1, y1), colour, 2, cv2.LINE_AA)
         main, extra = speed_text(m)
+        name = {"meteor": "", "satellite": "satellite ", "plane": "plane "}[m.kind]
         # OpenCV's built-in font has no degree or >= signs.
-        label = (f"#{m.extra['number']}  {main}" + (f"  {extra}" if extra else "")).replace("°", " deg").replace("≥", ">")
+        label = (f"{name}{m.label}  {main}" + (f"  {extra}" if extra else "")).replace("°", " deg").replace("≥", ">")
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
         lx = min(max(0, x0), video.shape[1] - tw - 8)
         ly = y0 - 8 if y0 - th - 14 > 0 else y1 + th + 10
-        cv2.rectangle(video, (lx - 4, ly - th - 6), (lx + tw + 4, ly + 6), (12, 17, 21), -1)
-        cv2.putText(video, label, (lx, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                    colour, 1, cv2.LINE_AA)
+        cv2.rectangle(video, (lx - 4, ly - th - 6), (lx + tw + 4, ly + 6), (21, 17, 12), -1)
+        cv2.putText(video, label, (lx, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.6, colour, 1, cv2.LINE_AA)
 
     def _panel(self, active_ids: tuple[int, ...]) -> np.ndarray:
         if active_ids in self._panel_cache:
@@ -169,11 +208,11 @@ class Renderer:
             colour = CYAN if on else WHITE
             font = self.f_row_bold if on else self.f_row
             d.text((28, y), f"{m.rank:>2}", font=font, fill=MUTED if not on else CYAN)
-            d.text((72, y), f"#{m.extra['number']}", font=font, fill=colour)
-            d.text((132, y), _clock(m.start_s), font=self.f_row, fill=MUTED)
-            d.text((240, y), main, font=font, fill=colour)
+            d.text((72, y), m.label, font=font, fill=colour)
+            d.text((140, y), _clock(m.start_s), font=self.f_row, fill=MUTED)
+            d.text((250, y), main, font=font, fill=colour)
             if extra:
-                d.text((352, y), extra, font=self.f_row, fill=MUTED if not on else CYAN)
+                d.text((356, y), extra, font=self.f_row, fill=MUTED if not on else CYAN)
         panel = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
         if len(self._panel_cache) > 256:
             self._panel_cache.clear()
@@ -189,24 +228,37 @@ class Renderer:
         d.text((32, 72), "tracked with Sky Tracker", font=self.f_small, fill=MUTED)
         now = f"source {_clock(index / self.scan.fps)}"
         if active:
-            now += "  ·  " + "  ".join(f"#{m.extra['number']} {speed_text(m)[0]}" for m in active)
+            now += "  ·  " + "  ".join(f"{m.label} {speed_text(m)[0]}" for m in active[:4])
         d.text((area_w - 32, 44), now, font=self.f_text, fill=CYAN if active else MUTED, anchor="ra")
         canvas[:s.bar_height, :area_w] = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
         foot = Image.new("RGB", (area_w, s.bar_height), BG)
         ImageDraw.Draw(foot).text((32, 44), self.footer, font=self.f_text, fill=MUTED)
         canvas[s.height - s.bar_height:, :area_w] = cv2.cvtColor(np.asarray(foot), cv2.COLOR_RGB2BGR)
 
+    def card(self, image: np.ndarray) -> np.ndarray:
+        """A closing still, letterboxed to the video size."""
+        s = self.style
+        canvas = np.empty((s.height, s.width, 3), np.uint8)
+        canvas[:] = BG[::-1]
+        k = min(s.width / image.shape[1], s.height / image.shape[0])
+        w, h = round(image.shape[1] * k), round(image.shape[0] * k)
+        x, y = (s.width - w) // 2, (s.height - h) // 2
+        canvas[y:y + h, x:x + w] = cv2.resize(image, (w, h), interpolation=cv2.INTER_AREA)
+        return canvas
+
 
 def write_highlights(scan: Scan, meteors: list[Meteor], out_path: str, style: Style = Style(),
-                     progress: Callable[[float], None] | None = None) -> list[tuple[int, int]]:
+                     progress: Callable[[float], None] | None = None,
+                     others: list[Meteor] = ()) -> list[tuple[int, int]]:
     """Writes the highlight video (H.264 MP4) and returns the source frame ranges used."""
     import imageio_ffmpeg
 
-    ranges = clips(scan, meteors, style)
+    renderer = Renderer(scan, meteors, style, others)
+    ranges = clips(scan, renderer.objects, style)
     if not ranges:
         return ranges
-    renderer = Renderer(scan, meteors, style)
-    total = sum(b - a + 1 for a, b in ranges)
+    card_frames = round(style.end_card_s * scan.fps) * len(style.end_cards)
+    total = sum(b - a + 1 for a, b in ranges) + card_frames
     writer = imageio_ffmpeg.write_frames(out_path, (style.width, style.height), fps=scan.fps, codec="libx264",
                                          pix_fmt_in="bgr24", pix_fmt_out="yuv420p", macro_block_size=1,
                                          output_params=["-crf", "20", "-preset", "medium", "-movflags", "+faststart"])
@@ -215,19 +267,46 @@ def write_highlights(scan: Scan, meteors: list[Meteor], out_path: str, style: St
     index = written = 0
     queue = iter(ranges)
     current = next(queue)
+
+    def sent() -> None:
+        nonlocal written
+        written += 1
+        if progress and written % 12 == 0:
+            progress(written / total)
+
     try:
+        far = round(20 * scan.fps)
         while current is not None:
+            while current is not None and index > current[1]:
+                current = next(queue, None)
+            if current is None:
+                break
+            if current[0] - index > far:
+                # Jump close to the next clip instead of decoding the hours between; land a little early and read on,
+                # so the frame count stays exact even where seeking is approximate.
+                target = current[0] - round(2 * scan.fps)
+                if capture.set(cv2.CAP_PROP_POS_FRAMES, target) and \
+                        int(capture.get(cv2.CAP_PROP_POS_FRAMES)) == target:
+                    index = target
+                else:
+                    capture.set(cv2.CAP_PROP_POS_FRAMES, index)
+                    far = float("inf")  # this video cannot seek reliably: decode straight through
+            if index < current[0]:
+                if not capture.grab():
+                    break
+                index += 1
+                continue
             ok, image = capture.read()
             if not ok:
                 break
-            if index > current[1]:
-                current = next(queue, None)
-            if current is not None and current[0] <= index <= current[1]:
-                writer.send(np.ascontiguousarray(renderer.frame(image, index)))
-                written += 1
-                if progress and written % 12 == 0:
-                    progress(written / total)
+            writer.send(np.ascontiguousarray(renderer.frame(image, index)))
+            sent()
             index += 1
+        for card in style.end_cards:
+            frame = np.ascontiguousarray(renderer.card(card))
+            for _ in range(round(style.end_card_s * scan.fps)):
+                writer.send(frame)
+                sent()
     finally:
         capture.release()
         writer.close()

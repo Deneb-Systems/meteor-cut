@@ -1,15 +1,18 @@
-"""One run: scan, pick the meteors, measure them, write the highlight video and the reports."""
+"""One run: scan, pick the meteors (and satellites and planes), measure them, write the video, images and reports."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Callable
 
-from .meteors import Rules, find_meteors
+import cv2
+
+from .images import heatmap, main_scene, radiant, trails
+from .meteors import KINDS, Rules, find_meteors, find_slow_objects
 from .optics import DEFAULT_METEOR_ALTITUDE_KM, Camera, parse_sensor
 from .render import Style, write_highlights
-from .report import summary, write_meteors_csv, write_points_csv, write_rejected_csv, write_summary
+from .report import summary, write_meteors_csv, write_objects_csv, write_points_csv, write_rejected_csv, write_summary
 from .scan import scan, video_info
 
 
@@ -34,6 +37,19 @@ class Lens:
         return None
 
 
+def parse_show(value: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    """'meteors', 'satellites,planes', 'all' ... -> kinds."""
+    words = value.split(",") if isinstance(value, str) else list(value)
+    kinds: list[str] = []
+    for word in (w.strip().lower().rstrip("s") for w in words if w.strip()):
+        if word == "all":
+            return KINDS
+        if word not in KINDS:
+            raise ValueError(f"show takes meteors, satellites, planes or all, not {word!r}")
+        kinds.append(word)
+    return tuple(dict.fromkeys(kinds)) or ("meteor",)
+
+
 @dataclass
 class Result:
     out_dir: Path
@@ -46,7 +62,7 @@ Progress = Callable[[str, float], None]
 
 
 def run(video: str, out_dir: str | Path, lens: Lens = Lens(), *, sky_region: tuple[int, int, int, int] | None = None,
-        rules: Rules = Rules(), style: Style = Style(), make_video: bool = True,
+        rules: Rules = Rules(), style: Style = Style(), make_video: bool = True, slow_objects: bool = True,
         progress: Progress | None = None) -> Result:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -55,19 +71,34 @@ def run(video: str, out_dir: str | Path, lens: Lens = Lens(), *, sky_region: tup
     fps, width, height, _ = video_info(video)
     camera = lens.camera(width, height)   # fail on bad lens settings before the long scan
 
-    found = scan(video, sky_region=sky_region, progress=lambda f: report("Finding moving objects", f))
+    found = scan(video, sky_region=sky_region, slow_objects=slow_objects or any(k != "meteor" for k in style.show),
+                 progress=lambda f: report("Finding moving objects", f))
+    report("Sorting meteors from everything else", 0.0)
     meteors, rejected = find_meteors(found, camera, rules, altitude_km=lens.altitude_km)
+    others, rejected_slow = find_slow_objects(found, meteors, camera, rules)
+
+    scene = main_scene(found, meteors)
+    point = radiant([m for m in meteors if m.scene == scene], found.width)
+    images = {}
+    if meteors:
+        images["trajectories.png"] = trails(found, meteors, others, point)
+        images["heatmap.png"] = heatmap(found, meteors)
+        for name, image in images.items():
+            cv2.imwrite(str(out / name), image)
 
     highlight = out / "meteors.mp4"
     ranges: list[tuple[int, int]] = []
-    if make_video and meteors:
-        ranges = write_highlights(found, meteors, str(highlight), style,
-                                  progress=lambda f: report("Writing the highlight video", f))
+    if make_video:
+        styled = replace(style, end_cards=list(images.values()))
+        ranges = write_highlights(found, meteors, str(highlight), styled,
+                                  progress=lambda f: report("Writing the highlight video", f), others=others)
     write_meteors_csv(out / "meteors.csv", meteors)
-    write_points_csv(out / "meteor_points.csv", meteors, found.fps, camera)
-    write_rejected_csv(out / "rejected.csv", rejected, found.fps)
-    data = summary(found, meteors, rejected, camera, ranges,
-                   {"lens": asdict(lens), "sky_region": sky_region, "rules": asdict(rules)})
+    write_objects_csv(out / "satellites_planes.csv", others)
+    write_points_csv(out / "meteor_points.csv", [*meteors, *others], found.fps, camera)
+    write_rejected_csv(out / "rejected.csv", [*rejected, *rejected_slow], found.fps)
+    data = summary(found, meteors, [*rejected, *rejected_slow], camera, ranges,
+                   {"lens": asdict(lens), "sky_region": sky_region, "show": list(style.show),
+                    "rules": asdict(rules)}, others=others, radiant=point, radiant_scene=scene)
     write_summary(out / "summary.json", data)
     report("Done", 1.0)
     return Result(out, highlight if ranges else None, len(meteors), data)
