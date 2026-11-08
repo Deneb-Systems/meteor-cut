@@ -100,14 +100,23 @@ def _num(value: float | None, digits: int = 1) -> str:
     return "" if value is None or not math.isfinite(value) else f"{value:.{digits}f}"
 
 
+#: A last stretch of the recording shorter than this counts in the hour before it, rather than as an hour of its own
+#: that would look like an hour without meteors.
+_SHORTEST_HOUR_S = 600
+
+
 def _per_hour_chart(meteors: Sequence[SkyObject], duration_s: float) -> str:
     """Meteors in each hour of the recording, as an inline SVG bar chart."""
-    hours = max(1, math.ceil(duration_s / 3600))
-    counts = Counter(int(m.start_s // 3600) for m in meteors)
+    hours = max(1, math.ceil((duration_s - _SHORTEST_HOUR_S) / 3600))
+    counts = Counter(min(int(m.start_s // 3600), hours - 1) for m in meteors)
     top = max(counts.values(), default=1)
     bar, gap, height = 56, 14, 140
     width = hours * (bar + gap) + gap
-    parts = [f'<svg viewBox="0 0 {width} {height + 44}" role="img" aria-label="Meteors per hour">']
+    # At most three times its own size, so that a short recording's one or two bars do not fill the page.
+    parts = [
+        f'<svg viewBox="0 0 {width} {height + 44}" style="max-width:{width * 3}px" role="img" '
+        'aria-label="Meteors per hour">'
+    ]
     for hour in range(hours):
         n = counts.get(hour, 0)
         h = round(height * n / top) if top else 0

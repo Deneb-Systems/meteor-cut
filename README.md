@@ -16,6 +16,11 @@ and keep only the meteors.
 Meteors are found and followed by [Sky Tracker](https://sky-tracker.deneb-systems.com)'s `MotionTracker`, which looks
 for what got brighter since the previous frame: the head of a meteor rather than the trail it leaves.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Deneb-Systems/meteor-cut/main/.github/readme/composite.jpg" alt="32 meteors from one hour of the Perseids, stacked by Meteor Cut onto one picture of the sky" width="100%">
+  <br><sub>Made by Meteor Cut from one hour of the Perseids livestream <a href="https://www.youtube.com/watch?v=liw0ssminyc">LIVE Perseids Meteor Shower, Skywatch #265</a> by Skywatchers, 12-13 August 2026. Footage © Skywatchers.</sub>
+</p>
+
 ## Install
 
 ```bash
@@ -53,6 +58,24 @@ for meteor in result.found.meteors:
 ```
 
 ## What you get
+
+Here is one hour of the 2026 Perseids, from the same livestream as the picture at the top: 32 meteors, 23 of them
+from the Perseid radiant, and 88 satellites.
+
+<table>
+  <tr>
+    <td width="34%" valign="top"><img src="https://raw.githubusercontent.com/Deneb-Systems/meteor-cut/main/.github/readme/short-brightest.gif" alt="A vertical clip of the brightest meteor: a green Perseid crossing the close-up" width="100%"></td>
+    <td valign="top">
+      <img src="https://raw.githubusercontent.com/Deneb-Systems/meteor-cut/main/.github/readme/report.jpg" alt="The top of report.html: the totals for the hour" width="100%">
+      <img src="https://raw.githubusercontent.com/Deneb-Systems/meteor-cut/main/.github/readme/top.jpg" alt="top.png: the five fastest, five longest and five brightest meteors" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="https://raw.githubusercontent.com/Deneb-Systems/meteor-cut/main/.github/readme/trajectories.jpg" alt="trajectories.png: every meteor coloured by speed, and the radiant 23 of them trace back to" width="100%"></td>
+  </tr>
+</table>
+
+<sub>Made by Meteor Cut from one hour of the Perseids livestream <a href="https://www.youtube.com/watch?v=liw0ssminyc">LIVE Perseids Meteor Shower, Skywatch #265</a> by Skywatchers, 12-13 August 2026. Footage © Skywatchers.</sub>
 
 Results go to `night-meteors/` beside the video (choose with `-o`):
 
