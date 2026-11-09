@@ -5,6 +5,19 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-09
+
+### Fixed
+
+- Videos that show every picture twice (a 15 fps camera in a 30 fps stream, common on livestreams) lost every meteor
+  shorter than about 0.2 s: the fast tracker sees a meteor only on new pictures, so it was detected on half the frames
+  and failed the 4-detection rule. Meteor Cut now notices the repeated pictures and asks for as many detections as
+  cover the same time, at least 3 (`Rules.min_repeated_detections`). On an 8-hour Perseid livestream this finds 34
+  more real meteors.
+- Two stars twinkling near each other no longer pass for a short meteor. A track has to be detected in at least 70 % of
+  the pictures between its first and last detection (`Rules.min_seen_share`); otherwise it is rejected as
+  `seen_on_and_off`.
+
 ## [0.1.0] - 2026-11-08
 
 First release.
@@ -46,5 +59,6 @@ First release.
 - The `meteor-cut` command, a Python API (`meteor_cut.process`) and a local upload page (`meteor-cut serve`) in the
   Sky Tracker website's style, which keeps each video's results in `~/Meteor Cut/<video> <date time>/`.
 
-[Unreleased]: https://github.com/Deneb-Systems/meteor-cut/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Deneb-Systems/meteor-cut/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Deneb-Systems/meteor-cut/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Deneb-Systems/meteor-cut/releases/tag/v0.1.0

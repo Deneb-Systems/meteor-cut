@@ -14,8 +14,10 @@ Distances are fractions of the frame width, so the same rules work for 720p and 
 
 from __future__ import annotations
 
+import logging
 import math
 import statistics
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -24,13 +26,23 @@ from .model import Kind, Point, Reason, Rejection, Scan, SkyObject, Track
 from .optics import DEFAULT_METEOR_ALTITUDE_KM, Camera, measure_motion
 from .scan import SLOW_RATE_HZ
 
+log = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class Rules:
     """Thresholds for telling meteors, satellites and planes from everything else that moves."""
 
-    # Meteors (fast tracker).
+    # Meteors (fast tracker). min_detections counts distinct pictures: a video that shows every picture twice (a
+    # 15 fps camera in a 30 fps stream) lets a meteor be seen on half as many frames, so it needs only as many
+    # pictures as cover the same time, never fewer than min_repeated_detections.
     min_detections: int = 4
+    min_repeated_detections: int = 3
+    # A meteor is seen in most pictures from its first sighting to its last. Two stars twinkling near each other (low
+    # on the horizon, in turbulent air) light up one, then the other, a few pictures apart, which looks like a short,
+    # straight, fast streak, but with most pictures between them empty. On an 8-hour Perseid night real meteors were
+    # seen in at least 75 % of their pictures and those star pairs in at most 60 %.
+    min_seen_share: float = 0.7
     min_length: float = 0.015  # of frame width
     min_speed: float = 0.04  # frame widths per second
     max_duration_s: float = 3.0
@@ -106,9 +118,25 @@ def classify(
     )
 
 
-def _meteor_shape(track: Track, fps: float, width: int, rules: Rules) -> Reason | None:
+def picture_step(tracks: Sequence[Track]) -> int:
+    """How many video frames each picture lasts: 1, or 2 (or more) when the video repeats every picture.
+
+    The fast tracker detects only what got brighter since the previous frame, so a repeated picture shows nothing new
+    and a meteor is detected on every second frame. That shows in the gaps between a track's detections.
+    """
+    gaps = Counter(b.frame - a.frame for t in tracks for a, b in zip(t.detections, t.detections[1:], strict=False))
+    total = sum(gaps.values())
+    if total < 50:
+        return 1
+    step, count = gaps.most_common(1)[0]
+    return step if 1 < step <= 4 and count >= 0.6 * total else 1
+
+
+def _meteor_shape(
+    track: Track, fps: float, width: int, rules: Rules, min_detections: int | None = None, step: int = 1
+) -> Reason | None:
     pts = track.detections
-    if len(pts) < rules.min_detections:
+    if len(pts) < (min_detections or rules.min_detections):
         return Reason.TOO_BRIEF
     length = chord_length(pts)
     duration = max(1, pts[-1].frame - pts[0].frame) / fps
@@ -120,6 +148,10 @@ def _meteor_shape(track: Track, fps: float, width: int, rules: Rules) -> Reason 
         return Reason.TOO_SLOW
     if straightness(pts) < rules.min_straightness or line_error(pts) > rules.max_line_error * length:
         return Reason.NOT_STRAIGHT
+    # Last, so a track that fails another test keeps that more telling reason.
+    pictures = (pts[-1].frame - pts[0].frame) // step + 1
+    if len(pts) < rules.min_seen_share * pictures:
+        return Reason.SEEN_ON_AND_OFF
     return None
 
 
@@ -160,11 +192,16 @@ def find_meteors(
     moving = [t for t in scan.tracks if len(t.detections) >= 2]
     radius = rules.hotspot_radius * scan.width
     window = rules.hotspot_window_s * scan.fps
+    step = picture_step(moving)
+    needed = rules.min_detections
+    if step > 1:
+        needed = max(rules.min_repeated_detections, math.ceil(rules.min_detections / step))
+        log.info("the video shows each picture for %d frames: a meteor needs %d detections", step, needed)
     meteors: list[SkyObject] = []
     rejected: list[Rejection] = []
     for track in moving:
         pts = track.detections
-        reason = _meteor_shape(track, scan.fps, scan.width, rules)
+        reason = _meteor_shape(track, scan.fps, scan.width, rules, needed, step)
         if reason is None and _speed(pts, scan.fps) < rules.crowd_max_speed * scan.width:
             repeats, together = _crowd(track, moving, radius, window)
             if repeats >= rules.hotspot_repeats:

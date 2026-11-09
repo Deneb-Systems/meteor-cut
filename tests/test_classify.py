@@ -4,7 +4,7 @@ import pytest
 
 from conftest import FPS, line, make_scan, make_track
 from meteor_cut.classify import Rules, classify, count_flashes, find_meteors, find_slow_objects
-from meteor_cut.model import Kind, Reason
+from meteor_cut.model import Kind, Point, Reason, Track
 from meteor_cut.optics import Camera
 
 
@@ -31,6 +31,32 @@ def test_what_is_not_a_meteor(points, reason):
     meteors, rejected = find_meteors(make_scan(make_track(1, points)))
     assert not meteors and [r.reason for r in rejected] == [reason]
     assert reason.description  # every reason explains itself
+
+
+def test_a_video_that_repeats_every_picture_needs_fewer_detections():
+    """A 15 fps camera in a 30 fps stream: meteors are detected on every second frame, so a brief one shows 3 times."""
+    others = [make_track(10 + i, line(100 + 60 * i, 100, 20, 12, 5), start=300 * i + 600, step=2) for i in range(15)]
+    brief = make_track(1, line(400, 200, 20, 12, 3), start=100, step=2)
+    meteors, _ = find_meteors(make_scan(brief, *others, frames=6000))
+    assert 1 in [m.track_id for m in meteors]
+    # Every frame new: three detections are still too brief.
+    meteors, rejected = find_meteors(make_scan(make_track(1, line(400, 200, 20, 12, 3), start=100)))
+    assert not meteors and [r.reason for r in rejected] == [Reason.TOO_BRIEF]
+
+
+def test_stars_twinkling_near_each_other_are_not_a_meteor():
+    """Two stars low in turbulent air light up one after the other: a straight jump with empty pictures between."""
+    others = [make_track(10 + i, line(100 + 60 * i, 100, 20, 12, 5), start=300 * i + 600, step=2) for i in range(15)]
+    pair = Track(1, 0, [Point(100, 400, 200, 6, 6, True, 200), Point(102, 424, 214, 6, 6, True, 200),
+                        Point(110, 440, 224, 6, 6, True, 200)])  # fmt: skip
+    meteors, rejected = find_meteors(make_scan(pair, *others, frames=6000))
+    assert 1 not in [m.track_id for m in meteors]
+    assert [r.reason for r in rejected if r.track_id == 1] == [Reason.SEEN_ON_AND_OFF]
+    # A meteor missed on one frame of five is still a meteor.
+    meteor = make_track(1, line(400, 200, 20, 12, 5), start=100)
+    meteor.points.pop(2)
+    meteors, rejected = find_meteors(make_scan(meteor))
+    assert [m.track_id for m in meteors] == [1] and not rejected
 
 
 def test_a_light_flaring_in_one_place_is_not_a_meteor():

@@ -54,7 +54,8 @@ A track is a meteor when it is:
 
 | Test | Default | Rejection code |
 |---|---|---|
-| Detected in enough frames | 4 | `too_brief` |
+| Detected in enough frames (3 when the video shows every picture twice) | 4 | `too_brief` |
+| Detected in most pictures from first sighting to last | 70 % | `seen_on_and_off` |
 | Long enough | 1.5 % of the frame width | `moved_too_little` |
 | Short enough in time | 3 s | `too_long` |
 | Fast enough | 4 % of the frame width per second | `too_slow` |

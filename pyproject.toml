@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "meteor-cut"
-version = "0.1.0"
+version = "0.1.1"
 description = "Find the meteors, satellites and planes in a night-sky video and make a highlight video, trajectory map and tables, tracked with Sky Tracker."
 readme = "README.md"
 license = "MIT"

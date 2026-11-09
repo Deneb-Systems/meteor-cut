@@ -91,6 +91,7 @@ class Reason(str, Enum):
     """Why a moving thing was not kept. The value is a stable code for CSV files and scripts."""
 
     TOO_BRIEF = "too_brief"
+    SEEN_ON_AND_OFF = "seen_on_and_off"
     MOVED_TOO_LITTLE = "moved_too_little"
     TOO_LONG = "too_long"
     TOO_SLOW = "too_slow"
@@ -113,6 +114,7 @@ class Reason(str, Enum):
 
 _REASONS = {
     Reason.TOO_BRIEF: "seen in too few frames",
+    Reason.SEEN_ON_AND_OFF: "missing from most frames along its way (stars twinkling near each other)",
     Reason.MOVED_TOO_LITTLE: "moved too little",
     Reason.TOO_LONG: "moved for too long for a meteor (a plane, satellite or person)",
     Reason.TOO_SLOW: "too slow for a meteor",
